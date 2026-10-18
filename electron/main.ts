@@ -7,6 +7,7 @@ import * as fsPromises from 'node:fs/promises'
 import {
   buildVideoFormatSelector,
   classifyDownloadFailure,
+  decodeDumpedPages,
   getProgressTemplateArgs,
   normalizeHttpUrl,
   parseYtDlpProgress,
@@ -897,7 +898,7 @@ const fetchPageHtmlWithCookies = async (targetUrl: string, cookiesBrowser: strin
     let output = '';
     proc.stdout.on('data', (data) => output += data.toString());
     proc.stderr.on('data', () => { }); // Ignore stderr
-    proc.on('close', () => resolve(output));
+    proc.on('close', () => resolve(decodeDumpedPages(output)));
     proc.on('error', () => resolve(''));
   });
 };

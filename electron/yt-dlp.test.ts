@@ -3,6 +3,7 @@ import {
   buildVideoFormatSelector,
   buildYtDlpArgs,
   classifyDownloadFailure,
+  decodeDumpedPages,
   getYtDlpRuntimeConfig,
   normalizeHttpUrl,
   parseYtDlpProgress,
@@ -102,5 +103,13 @@ describe('request validation and errors', () => {
   it('preserves a useful extractor error instead of only returning an exit code', () => {
     const result = classifyDownloadFailure('warning\nERROR: This video is private', 1)
     expect(result.message).toBe('This video is private')
+  })
+})
+
+describe('decodeDumpedPages', () => {
+  it('decodes base64 page dumps and ignores log lines', () => {
+    const html = '<html><video src="https://example.com/a.mp4"></video></html>'
+    const out = `[generic] Extracting URL: https://example.com\n[generic] Dumping request\n${Buffer.from(html).toString('base64')}\n`
+    expect(decodeDumpedPages(out)).toBe(html)
   })
 })

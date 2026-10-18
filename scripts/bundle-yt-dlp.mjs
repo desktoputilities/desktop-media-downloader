@@ -9,7 +9,7 @@ const rootDir = path.resolve(path.dirname(currentFile), '..');
 const binDir = path.join(rootDir, 'bin');
 const targetName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
 const targetPath = path.join(binDir, targetName);
-const requestedVersion = process.env.YTDLP_VERSION?.trim() || '2026.07.04';
+const requestedVersion = process.env.YTDLP_VERSION?.trim() || '2026.08.19';
 const releaseApiUrl = `https://api.github.com/repos/yt-dlp/yt-dlp/releases/tags/${requestedVersion}`;
 
 const assetNameForPlatform = () => {

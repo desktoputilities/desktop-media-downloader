@@ -251,3 +251,15 @@ export const classifyDownloadFailure = (
     message: errorLine?.replace(/^error:\s*/i, '').slice(0, 500) || `Download failed with code ${code}`,
   }
 }
+
+// yt-dlp's --dump-pages prints each fetched page base64-encoded on its own line,
+// mixed with plain log lines. Decode the page lines and drop the rest.
+export const decodeDumpedPages = (output: string): string => {
+  const pages: string[] = []
+  for (const line of output.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (trimmed.length < 16 || trimmed.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(trimmed)) continue
+    pages.push(Buffer.from(trimmed, 'base64').toString('utf-8'))
+  }
+  return pages.join('\n')
+}
