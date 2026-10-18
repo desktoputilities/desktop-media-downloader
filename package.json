@@ -1,7 +1,7 @@
 {
   "name": "desktop-media-downloader",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Open-source yt-dlp desktop media downloader for Windows, macOS, and Linux.",
   "keywords": [
     "electron",

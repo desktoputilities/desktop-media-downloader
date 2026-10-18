@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-18
+
+### Changed
+
+- Updated the bundled yt-dlp runtime to 2026.08.19.
+
+### Fixed
+
+- Decoded yt-dlp's base64 `--dump-pages` output so the browser-cookie page fallback can find media on gated pages again.
+
 ## [1.0.0] - 2026-08-01
 
 ### Added
