@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   onDownloadProgress: (listener: DownloadEventListener<{ id: string; progress: number; speed?: string; eta?: string }>) =>
     subscribe('download-progress', listener),
-  onDownloadComplete: (listener: DownloadEventListener<{ id: string }>) =>
+  onDownloadComplete: (listener: DownloadEventListener<{ id: string; fileName?: string; fileSize?: number; fileExt?: string }>) =>
     subscribe('download-complete', listener),
   onDownloadError: (listener: DownloadEventListener<{ id: string; error: string }>) =>
     subscribe('download-error', listener),

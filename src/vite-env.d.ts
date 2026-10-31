@@ -6,7 +6,7 @@ interface Window {
         maximize: () => void;
         close: () => void;
         onDownloadProgress: (listener: (payload: { id: string; progress: number; speed?: string; eta?: string }) => void) => () => void;
-        onDownloadComplete: (listener: (payload: { id: string }) => void) => () => void;
+        onDownloadComplete: (listener: (payload: { id: string; fileName?: string; fileSize?: number; fileExt?: string }) => void) => () => void;
         onDownloadError: (listener: (payload: { id: string; error: string }) => void) => () => void;
         getVideoInfo: (url: string, cookiesBrowser?: string) => Promise<any>;
         getVideoInfoFast: (url: string) => Promise<any>;

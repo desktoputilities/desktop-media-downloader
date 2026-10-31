@@ -41,7 +41,8 @@
         "stopAllRunning": "Çalışan tüm indirmeleri durdur",
         "noPausedToResume": "Devam ettirecek duraklatılmış indirme yok",
         "resumeAllPaused": "Duraklatılmış tüm indirmeleri devam ettir",
-        "cancelAllActive": "Tüm aktif ve duraklatılmış indirmeleri iptal et"
+        "cancelAllActive": "Tüm aktif ve duraklatılmış indirmeleri iptal et",
+        "paste": "Panodan yapıştır"
     },
     "downloads": {
         "sectionTitle": "İndirme Kuyruğu",
@@ -258,7 +259,8 @@
         "installGuide": "Yükleme Rehberi",
         "retryThis": "Bu indirmeyi yeniden dene",
         "copyDiagnostics": "İndirme tanılamalarını kopyala",
-        "openGuide": "Bağımlılık yükleme rehberini aç"
+        "openGuide": "Bağımlılık yükleme rehberini aç",
+        "preparing": "Hazırlanıyor…"
     },
     "formatSelector": {
         "title": "Format Seç",
@@ -292,12 +294,13 @@
         "mobileMeaning": "çoğu telefonda akıcı oynatma.",
         "noQualities": "Kalite seçeneği bulunamadı.",
         "bestAuto": "En iyi kalite otomatik seçilecek.",
-        "audioTitle": "Yüksek Kaliteli MP3",
-        "audioDesc": "En yüksek bit hızında ses çıkaracağız.",
+        "audioTitle": "MP3 ses",
+        "audioDesc": "En iyi ses parçasını indirir ve MP3’e dönüştürür. FFmpeg yoksa orijinal ses biçimi korunur.",
         "photoTitle": "Yüksek Kaliteli Fotoğraf",
         "photoDesc": "En iyi küçük resmi indirin.",
         "timestampDetected": "Zaman Damgası Algılandı",
-        "estimatedSize": "~{{size}}"
+        "estimatedSize": "~{{size}}",
+        "sizeUnknown": "Boyut bilinmiyor"
     },
     "searchModal": {
         "title": "YouTube Ara",

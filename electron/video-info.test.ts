@@ -1,5 +1,50 @@
 import { describe, expect, it } from 'vitest';
-import { createQuickVideoInfoSeed, getOEmbedEndpoint, parseQuickHtmlMetadata } from './video-info';
+import {
+  createQuickVideoInfoSeed,
+  getOEmbedEndpoint,
+  parseQuickHtmlMetadata,
+  summarizeRequestedDownloads,
+} from './video-info';
+
+describe('per-quality download sizes', () => {
+  // Shapes taken from yt-dlp's requested_downloads for a merged YouTube video.
+  const merged = (height: number, videoBytes: number, ext = 'mp4') => ({
+    ext,
+    requested_formats: [
+      { height, filesize: videoBytes },
+      { height: null, filesize: 10271496 },
+    ],
+  });
+
+  it('sums the video and audio parts and marks exact server sizes', () => {
+    const details = summarizeRequestedDownloads([merged(1080, 257619653)], [1080]);
+
+    expect(details['1080']).toEqual({ bytes: 267891149, exact: true, ext: 'mp4' });
+  });
+
+  it('marks the size approximate when any part only has an estimate', () => {
+    const details = summarizeRequestedDownloads([{
+      ext: 'mp4',
+      requested_formats: [{ height: 720, filesize_approx: 1000 }, { filesize: 500 }],
+    }], [720]);
+
+    expect(details['720']).toEqual({ bytes: 1500, exact: false, ext: 'mp4' });
+  });
+
+  it('only uses a result whose height matches the offered quality', () => {
+    // The 1080 limit resolved to a 1076p stream, so 1080 gets no exact size.
+    const details = summarizeRequestedDownloads([merged(1076, 100), merged(720, 50, 'mkv')], [1080, 1076, 720]);
+
+    expect(Object.keys(details).sort()).toEqual(['1076', '720']);
+    expect(details['720'].ext).toBe('mkv');
+  });
+
+  it('handles single combined formats and missing data', () => {
+    expect(summarizeRequestedDownloads([{ ext: 'mp4', height: 360, filesize: 42 }], [360]))
+      .toEqual({ '360': { bytes: 42, exact: true, ext: 'mp4' } });
+    expect(summarizeRequestedDownloads(undefined, [360])).toEqual({});
+  });
+});
 
 describe('quick video metadata', () => {
   it('creates an immediate YouTube thumbnail without a network request', () => {

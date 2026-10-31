@@ -1,6 +1,6 @@
 import React from 'react';
 import { Video, Music, Check, X, FolderOpen, Loader2 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatFileSize } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -16,6 +16,7 @@ interface FormatSelectorProps {
     ) => void;
     availableQualities?: number[];
     qualitySizes?: Record<string, number>;
+    qualityDetails?: Record<string, { bytes: number; exact: boolean; ext?: string }>;
     isLoadingQualities?: boolean;
     defaultQuality?: string;
     defaultTurboEnabled?: boolean;
@@ -42,6 +43,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     onSelect,
     availableQualities = [],
     qualitySizes = {},
+    qualityDetails = {},
     isLoadingQualities = false,
     defaultQuality = 'best',
     defaultTurboEnabled = true,
@@ -124,17 +126,14 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     // Get label for selected quality
     const selectedQualityInfo = selectedQuality ? getQualityLabel(parseInt(selectedQuality)) : null;
 
-    const formatBytes = (bytes?: number): string => {
-        if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return 'Size unknown';
-        const units = ['B', 'KB', 'MB', 'GB'];
-        let value = bytes;
-        let unitIndex = 0;
-        while (value >= 1024 && unitIndex < units.length - 1) {
-            value /= 1024;
-            unitIndex += 1;
-        }
-        const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-        return `~${value.toFixed(precision)} ${units[unitIndex]}`;
+    const describeQuality = (quality: number) => {
+        const detail = qualityDetails[String(quality)];
+        return {
+            size: (detail
+                ? formatFileSize(detail.bytes, detail.exact)
+                : formatFileSize(qualitySizes[String(quality)])) || t('formatSelector.sizeUnknown', 'Size unknown'),
+            ext: detail?.ext?.toUpperCase(),
+        };
     };
 
     return (
@@ -335,6 +334,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                                 <div className="grid grid-cols-3 gap-2">
                                                     {sortedQualities.map((quality) => {
                                                         const { label, sublabel } = getQualityLabel(quality);
+                                                        const { size, ext } = describeQuality(quality);
                                                         return (
                                                             <button
                                                                 type="button"
@@ -348,8 +348,8 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                                                 )}
                                                             >
                                                                 <span className="font-bold text-sm">{label}</span>
-                                                                <span className={cn("text-[10px]", selectedQuality === quality.toString() ? "text-primary-foreground/70" : "text-foreground/50")}>{sublabel}</span>
-                                                                <span className={cn("text-[10px]", selectedQuality === quality.toString() ? "text-primary-foreground/85" : "text-foreground/45")}>{formatBytes(qualitySizes[quality.toString()])}</span>
+                                                                <span className={cn("text-[10px]", selectedQuality === quality.toString() ? "text-primary-foreground/70" : "text-foreground/50")}>{ext ? `${sublabel} · ${ext}` : sublabel}</span>
+                                                                <span className={cn("text-[10px]", selectedQuality === quality.toString() ? "text-primary-foreground/85" : "text-foreground/45")}>{size}</span>
                                                                 {isMobileFriendlyQuality(quality) && (
                                                                     <span
                                                                         className={cn(

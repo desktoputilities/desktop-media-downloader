@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import {
     buildRestartOptions,
     createThrottledWriter,
@@ -24,6 +24,10 @@ export interface DownloadItem {
     turboConnections?: number;
     photoTimestampMode?: 'screenshot' | 'thumbnail';
     fileNameTemplate?: string;
+    // Set from the finished file, so labels show what was actually saved.
+    fileName?: string;
+    fileSize?: number;
+    fileExt?: string;
     error?: string;
     completedAt?: string;
 }
@@ -63,6 +67,8 @@ export interface VideoInfo {
     extractor?: string;
     videoQualities?: number[];
     videoQualitySizes?: Record<string, number>;
+    // Formats yt-dlp would actually download for each quality, when resolved.
+    videoQualityDetails?: Record<string, { bytes: number; exact: boolean; ext?: string }>;
     hasAudio?: boolean;
     extractedUrl?: string;
     extractedSources?: Record<string, string>;
@@ -122,6 +128,8 @@ const HISTORY_STORAGE_KEY = 'desktop-media-download-history';
 const DOWNLOADS_STORAGE_KEY = 'desktop-media-downloads';
 const SETTINGS_STORAGE_KEY = 'desktop-media-settings';
 const SAVE_THROTTLE_MS = 1000;
+// Progress text and bars read fine at 4 updates/s; per-frame flushes re-rendered every consumer.
+const PROGRESS_FLUSH_MS = 250;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const QUICK_CACHE_TTL_MS = 30 * 60 * 1000;
 
@@ -189,7 +197,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const [settings, setSettings] = useState<DownloadSettings>(defaultSettings);
 
     const progressQueue = React.useRef<Map<string, { progress: number; speed?: string; eta?: string; queuedAt: number }>>(new Map());
-    const progressRaf = React.useRef<number | null>(null);
+    const progressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const pendingTerminalState = React.useRef<Map<string, { status: 'completed' | 'error'; error?: string }>>(new Map());
     const videoInfoCache = React.useRef<Map<string, { data: VideoInfo; timestamp: number }>>(new Map());
     const videoInfoInflight = React.useRef<Map<string, Promise<{ success: boolean; data?: VideoInfo; error?: string }>>>(new Map());
@@ -237,7 +245,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         downloadsWriter.cancel();
         historyWriter.cancel();
         settingsWriter.cancel();
-        if (progressRaf.current) cancelAnimationFrame(progressRaf.current);
+        if (progressTimer.current) clearTimeout(progressTimer.current);
     }, []);
 
     useEffect(() => {
@@ -327,20 +335,22 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
 
             if (progressQueue.current.size > 0) {
-                progressRaf.current = requestAnimationFrame(flushProgress);
+                progressTimer.current = setTimeout(flushProgress, PROGRESS_FLUSH_MS);
             } else {
-                progressRaf.current = null;
+                progressTimer.current = null;
             }
         };
 
         const handleProgress = ({ id, progress, speed, eta }: { id: string; progress: number; speed?: string; eta?: string }) => {
             progressQueue.current.set(id, { progress, speed, eta, queuedAt: Date.now() });
-            if (!progressRaf.current) {
-                progressRaf.current = requestAnimationFrame(flushProgress);
+            if (!progressTimer.current) {
+                progressTimer.current = setTimeout(flushProgress, PROGRESS_FLUSH_MS);
             }
         };
 
-        const handleComplete = ({ id }: { id: string }) => {
+        const handleComplete = ({ id, fileName, fileSize, fileExt }: { id: string; fileName?: string; fileSize?: number; fileExt?: string }) => {
+            // Drop queued progress so a late flush cannot overwrite the final state.
+            progressQueue.current.delete(id);
             setDownloads(prev => {
                 let matched = false;
                 const updatedDownloads = prev.map(d => {
@@ -352,6 +362,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                             progress: 100,
                             speed: undefined,
                             eta: undefined,
+                            fileName,
+                            fileSize,
+                            fileExt,
                         };
                         // Add to history
                         addToHistory(completedItem);
@@ -899,32 +912,58 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         };
     }, []);
 
+    const value = useMemo<DownloadContextType>(() => ({
+        downloads,
+        history,
+        settings,
+        addDownload,
+        removeDownload,
+        cancelDownload,
+        pauseDownload,
+        resumeDownload,
+        cancelAllDownloads,
+        stopAllDownloads,
+        resumeAllDownloads,
+        boostDownload,
+        retryDownload,
+        clearCompleted,
+        clearHistory,
+        removeFromHistory,
+        updateSettings,
+        getVideoInfo,
+        getFastVideoInfo,
+        searchVideos,
+        getPlaylistInfo,
+        getAvailableBrowsers,
+        validateBrowserCookies,
+    }), [
+        downloads,
+        history,
+        settings,
+        addDownload,
+        removeDownload,
+        cancelDownload,
+        pauseDownload,
+        resumeDownload,
+        cancelAllDownloads,
+        stopAllDownloads,
+        resumeAllDownloads,
+        boostDownload,
+        retryDownload,
+        clearCompleted,
+        clearHistory,
+        removeFromHistory,
+        updateSettings,
+        getVideoInfo,
+        getFastVideoInfo,
+        searchVideos,
+        getPlaylistInfo,
+        getAvailableBrowsers,
+        validateBrowserCookies,
+    ]);
+
     return (
-        <DownloadContext.Provider value={{
-            downloads,
-            history,
-            settings,
-            addDownload,
-            removeDownload,
-            cancelDownload,
-            pauseDownload,
-            resumeDownload,
-            cancelAllDownloads,
-            stopAllDownloads,
-            resumeAllDownloads,
-            boostDownload,
-            retryDownload,
-            clearCompleted,
-            clearHistory,
-            removeFromHistory,
-            updateSettings,
-            getVideoInfo,
-            getFastVideoInfo,
-            searchVideos,
-            getPlaylistInfo,
-            getAvailableBrowsers,
-            validateBrowserCookies,
-        }}>
+        <DownloadContext.Provider value={value}>
             {children}
         </DownloadContext.Provider>
     );

@@ -17,7 +17,13 @@ import {
   parseYtDlpProgress,
   spawnYtDlp,
 } from './yt-dlp'
-import { createQuickVideoInfoSeed, getOEmbedEndpoint, parseQuickHtmlMetadata } from './video-info'
+import {
+  createQuickVideoInfoSeed,
+  getOEmbedEndpoint,
+  parseQuickHtmlMetadata,
+  SIZE_LADDER,
+  summarizeRequestedDownloads,
+} from './video-info'
 
 // The built directory structure
 process.env.APP_ROOT = path.join(__dirname, '..')
@@ -1608,12 +1614,19 @@ const uniqueDestinationPath = async (baseDir: string, fileName: string) => {
   }
 };
 
+interface FinalizedFile {
+  fileName: string;
+  fileSize: number;
+  fileExt: string;
+}
+
+// Returns the largest moved file, which is the media rather than a sidecar.
 const finalizeStagedDownload = async (
   downloadId: string,
   stagingDir: string,
   downloadsDir: string,
   options?: { includeImages?: boolean }
-) => {
+): Promise<FinalizedFile> => {
   await ensureDirectory(stagingDir);
   const prefix = `${downloadId}_`;
   const names = await fsPromises.readdir(stagingDir);
@@ -1640,15 +1653,24 @@ const finalizeStagedDownload = async (
     throw new Error('Download finished but no output file was found');
   }
 
-  await Promise.all(completed.map(async (name) => {
+  const moved = await Promise.all(completed.map(async (name) => {
     const sourcePath = path.join(stagingDir, name);
     const outputName = name.substring(prefix.length) || name;
     const destinationPath = await uniqueDestinationPath(downloadsDir, outputName);
+    const { size } = await fsPromises.stat(sourcePath);
     await moveFileWithFallback(sourcePath, destinationPath);
+    return { destinationPath, size };
   }));
 
   // Remove leftovers for this download after moving final artifacts.
   await cleanStagedArtifacts(downloadId, stagingDir);
+
+  const primary = moved.reduce((largest, file) => (file.size > largest.size ? file : largest));
+  return {
+    fileName: path.basename(primary.destinationPath),
+    fileSize: primary.size,
+    fileExt: path.extname(primary.destinationPath).replace('.', '').toLowerCase(),
+  };
 };
 
 function createWindow() {
@@ -1865,8 +1887,10 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
   }
 
   return new Promise(async (resolve) => {
-    // Initial standard yt-dlp call
-    const runYtDlp = (targetUrl: string, referer?: string): Promise<any> => {
+    // Initial standard yt-dlp call. With resolveSizes, yt-dlp also runs the
+    // download's own format selection for each SIZE_LADDER height, which
+    // gives real per-quality sizes in requested_downloads.
+    const runYtDlp = (targetUrl: string, referer?: string, resolveSizes = false): Promise<any> => {
       return new Promise((resolveInner) => {
         const args = [
           '--no-playlist',
@@ -1874,6 +1898,14 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
           '--no-warnings',
           '--user-agent', getBrowserUserAgent(),
         ];
+        if (resolveSizes) {
+          const ffmpegReady = isFfmpegAvailable();
+          const selectors = SIZE_LADDER.map((height) => buildVideoFormatSelector({
+            quality: String(height),
+            ffmpegAvailable: ffmpegReady,
+          }));
+          args.push('-f', selectors.join(','), ...getVideoFormatSortArgs());
+        }
         if (referer) args.push('--referer', referer);
         if (cookiesBrowser) args.push('--cookies-from-browser', cookiesBrowser);
         args.push(targetUrl);
@@ -1979,9 +2011,10 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
         };
       }) || [];
 
-      // Get unique video qualities
+      // Get unique video qualities. Storyboard image sheets have a height but
+      // vcodec 'none'; they are not downloadable video.
       const videoQualities: number[] = [...new Set(formats
-        .filter((f: any) => f.height && (f.vcodec !== 'none' || f.height > 0))
+        .filter((f: any) => f.height && f.vcodec !== 'none')
         .map((f: any) => f.height)
       )].map((v: any) => Number(v)).filter((v: number) => Number.isFinite(v)).sort((a, b) => b - a);
 
@@ -2014,6 +2047,11 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
         }
       });
 
+      const qualityDetails = summarizeRequestedDownloads(info.requested_downloads, videoQualities);
+      for (const [key, detail] of Object.entries(qualityDetails)) {
+        qualitySizeMap[key] = detail.bytes;
+      }
+
       resolve({
         success: true,
         data: {
@@ -2029,6 +2067,7 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
           extractor: info.extractor_key || info.extractor,
           videoQualities,
           videoQualitySizes: qualitySizeMap,
+          videoQualityDetails: qualityDetails,
           hasAudio: formats.some((f: any) => f.acodec && f.acodec !== 'none'),
           // Pass through HTML-extracted direct sources when available
           ...(info._directExtractedSources ? {
@@ -2039,8 +2078,12 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
       });
     };
 
-    // 1) Standard extraction via yt-dlp extractor.
-    let result: any = await runYtDlp(url);
+    // 1) Standard extraction via yt-dlp extractor. If the size selectors are what
+    // failed, retry plainly so sizes never cost a working preview.
+    let result: any = await runYtDlp(url, undefined, true);
+    if (!result.success && /requested format/i.test(String(result.error))) {
+      result = await runYtDlp(url);
+    }
     const initialTitle = result.success ? result.data?.title : undefined;
 
     const weakGenericSuccess = result.success && (
@@ -3352,8 +3395,8 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
                 fallbackProc.on('close', async (fallbackCode: number | null) => {
                   if (fallbackCode === 0) {
                     try {
-                      await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, { includeImages: true });
-                      win?.webContents.send('download-complete', { id: downloadId });
+                      const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, { includeImages: true });
+                      win?.webContents.send('download-complete', { id: downloadId, ...file });
                       resolve({ id: downloadId, status: 'completed' });
                     } catch {
                       win?.webContents.send('download-error', {
@@ -3759,10 +3802,10 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
         });
 
         try {
-          await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
+          const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
             includeImages: false,
           });
-          win?.webContents.send('download-complete', { id: downloadId });
+          win?.webContents.send('download-complete', { id: downloadId, ...file });
           showDownloadNotification('Download Complete', `${opts.titleOverride || 'Your download'} has finished.`);
         } catch (moveError: any) {
           await cleanStagedArtifacts(downloadId, stagingDir);
@@ -3946,10 +3989,10 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
           });
 
           try {
-            await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
+            const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
               includeImages: opts.preserveThumbnail !== false && !ffmpegReady,
             });
-            win?.webContents.send('download-complete', { id: downloadId });
+            win?.webContents.send('download-complete', { id: downloadId, ...file });
             showDownloadNotification('Download Complete', `${opts.titleOverride || 'Your download'} has finished.`);
           } catch (moveError: any) {
             await cleanStagedArtifacts(downloadId, stagingDir);
@@ -3982,10 +4025,10 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
 
           if (ok) {
             try {
-              await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
+              const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
                 includeImages: opts.preserveThumbnail !== false && !ffmpegReady,
               });
-              win?.webContents.send('download-complete', { id: downloadId });
+              win?.webContents.send('download-complete', { id: downloadId, ...file });
               showDownloadNotification('Download Complete', `${opts.titleOverride || 'Your download'} has finished.`);
             } catch (moveError: any) {
               await cleanStagedArtifacts(downloadId, stagingDir);
@@ -4188,7 +4231,10 @@ ipcMain.handle('cancel-download', async (_event, downloadId: string) => {
     await cleanStagedArtifacts(downloadId, stagingDir);
     return { success: true };
   }
-  return { success: false, error: 'Download not found' };
+
+  // Nothing is running (a failed or interrupted item): discard its partial files.
+  await cleanStagedArtifacts(downloadId, stagingDir);
+  return { success: true };
 });
 
 // Pause download - kills process but saves state for resume

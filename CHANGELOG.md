@@ -8,6 +8,10 @@ All notable changes to this project are documented in this file.
 
 - Video downloads now prefer plain HTTPS streams over HLS at the same resolution, which is much faster on YouTube.
 - HLS and DASH streams now fetch four fragments at a time by default, and fragment retries back off instead of retrying immediately.
+- The format selector now shows the exact size and container of what each quality will download, from the same format selection the download uses. Estimates are marked with `~`.
+- Completed downloads show the saved file's real size and container.
+- Removed duplicate paste and Download controls from the home screen.
+- Download progress refreshes four times per second instead of every frame, which cuts re-rendering.
 
 ### Fixed
 
@@ -17,6 +21,9 @@ All notable changes to this project are documented in this file.
 - Pause and cancel now work during source detection and retry countdowns.
 - Restarting a download no longer loses track of its process.
 - The download queue is now saved while downloads are running.
+- The remove button on failed downloads works and deletes their partial files.
+- YouTube storyboard images are no longer offered as video qualities (such as 27p or 90p).
+- The audio option now describes the MP3 conversion accurately, queued items show "Preparing…", and view counts and upload dates display correctly.
 
 ## [1.0.1] - 2026-10-18
 

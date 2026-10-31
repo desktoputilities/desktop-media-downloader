@@ -41,7 +41,8 @@
         "stopAllRunning": "実行中のすべてのダウンロードを停止",
         "noPausedToResume": "再開する一時停止中のダウンロードがありません",
         "resumeAllPaused": "一時停止中のすべてのダウンロードを再開",
-        "cancelAllActive": "すべてのアクティブおよび一時停止中のダウンロードをキャンセル"
+        "cancelAllActive": "すべてのアクティブおよび一時停止中のダウンロードをキャンセル",
+        "paste": "クリップボードから貼り付け"
     },
     "downloads": {
         "sectionTitle": "ダウンロードキュー",
@@ -227,7 +228,8 @@
         "installGuide": "インストールガイド",
         "retryThis": "このダウンロードを再試行",
         "copyDiagnostics": "ダウンロード診断をコピー",
-        "openGuide": "インストールガイドを開く"
+        "openGuide": "インストールガイドを開く",
+        "preparing": "準備中…"
     },
     "formatSelector": {
         "title": "フォーマットを選択",
@@ -261,12 +263,13 @@
         "mobileMeaning": "ほとんどのスマートフォンでスムーズに再生。",
         "noQualities": "明示的な品質オプションが見つかりません。",
         "bestAuto": "最高品質が自動で選択されます。",
-        "audioTitle": "高品質MP3",
-        "audioDesc": "最高ビットレートの音声ストリームを抽出します。",
+        "audioTitle": "MP3音声",
+        "audioDesc": "最適な音声トラックをダウンロードしてMP3に変換します。FFmpegがない場合は元の音声形式のまま保存します。",
         "photoTitle": "高品質写真",
         "photoDesc": "最高のサムネイルをダウンロードまたはスクリーンショットをキャプチャします。",
         "timestampDetected": "タイムスタンプリンク検出",
-        "estimatedSize": "~{{size}}"
+        "estimatedSize": "~{{size}}",
+        "sizeUnknown": "サイズ不明"
     },
     "searchModal": {
         "title": "YouTube検索",

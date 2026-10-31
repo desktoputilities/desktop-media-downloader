@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { X, Check, Pause, Play, Folder, AlertCircle, Youtube, Globe, Music, RefreshCw, Zap, Copy, ExternalLink } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatFileSize } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
 
 export interface DownloadItemData {
@@ -18,6 +18,8 @@ export interface DownloadItemData {
     enableTurboDownload?: boolean;
     adaptiveTurboDownload?: boolean;
     turboConnections?: number;
+    fileSize?: number;
+    fileExt?: string;
     error?: string;
 }
 
@@ -47,7 +49,16 @@ const getSourceLabel = (url: string) => {
     return 'Web';
 };
 
-const getTroubleshootingLink = (error?: string): string | null => {
+// Before completion only the request is known, so audio shows "Audio" rather than
+// a container it may not end up in. After completion, show the real extension.
+const getFormatBadge = (item: DownloadItemData): string => {
+    if (item.status === 'completed' && item.fileExt) return item.fileExt.toUpperCase();
+    if (item.format === 'audio') return 'Audio';
+    if (item.format === 'photo') return 'IMG';
+    return item.quality && /^\d+$/.test(item.quality) ? `${item.quality}p` : 'Best';
+};
+
+const getTroubleshootingLink =(error?: string): string | null => {
     if (!error) return null;
 
     const normalized = error.toLowerCase();
@@ -68,6 +79,8 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
     const isPaused = item.status === 'paused';
     const isComplete = item.status === 'completed';
     const isError = item.status === 'error';
+    const isPreparing = item.status === 'pending' && item.progress <= 0 && !item.eta;
+    const finalSize = isComplete ? formatFileSize(item.fileSize, true) : undefined;
     const isRetrying = isActive && Boolean(item.eta && /retrying/i.test(item.eta));
     const isFinalizing = isActive && Boolean(item.eta && /finalizing/i.test(item.eta));
     const troubleshootingLink = useMemo(() => getTroubleshootingLink(item.error), [item.error]);
@@ -178,7 +191,7 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                                     : 'bg-primary/15 text-foreground'
                         )}
                     >
-                        {item.format === 'audio' ? 'MP3' : item.format === 'photo' ? 'IMG' : item.quality || 'HD'}
+                        {getFormatBadge(item)}
                     </div>
                 </div>
 
@@ -244,10 +257,11 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                     {/* Status & Footer */}
                     <div className="flex items-center justify-between mt-2">
                         <div className="text-xs">
-                            {isComplete && <span className="text-success flex items-center gap-1"><Check className="w-3 h-3" /> {t('downloadCard.completed')}</span>}
+                            {isComplete && <span className="text-success flex items-center gap-1"><Check className="w-3 h-3" /> {t('downloadCard.completed')}{finalSize && ` · ${finalSize}`}</span>}
                             {isError && <span className="text-error flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {item.error || t('downloadCard.failed')}</span>}
                             {isPaused && <span className="text-warning flex items-center gap-1"><Pause className="w-3 h-3" /> {t('downloadCard.paused')} - {item.progress.toFixed(1)}%</span>}
-                            {isActive && (
+                            {isPreparing && <span className="text-foreground/60">{t('downloadCard.preparing')}</span>}
+                            {isActive && !isPreparing && (
                                 <span className={cn(isRetrying ? 'text-warning' : 'text-foreground/60')}>
                                     {item.progress.toFixed(1)}%
                                     {item.eta && ((isRetrying || isFinalizing) ? ` • ${item.eta}` : ` • ${item.eta} ${t('downloadCard.remaining')}`)}

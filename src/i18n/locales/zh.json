@@ -41,7 +41,8 @@
         "stopAllRunning": "停止所有正在运行的下载",
         "noPausedToResume": "没有暂停的下载可恢复",
         "resumeAllPaused": "恢复所有暂停的下载",
-        "cancelAllActive": "取消所有活跃和暂停的下载"
+        "cancelAllActive": "取消所有活跃和暂停的下载",
+        "paste": "从剪贴板粘贴"
     },
     "downloads": {
         "sectionTitle": "下载队列",
@@ -227,7 +228,8 @@
         "installGuide": "安装指南",
         "retryThis": "重试此下载",
         "copyDiagnostics": "复制下载诊断",
-        "openGuide": "打开安装指南"
+        "openGuide": "打开安装指南",
+        "preparing": "准备中…"
     },
     "formatSelector": {
         "title": "选择格式",
@@ -261,12 +263,13 @@
         "mobileMeaning": "在大多数手机上更流畅播放。",
         "noQualities": "未找到明确的质量选项。",
         "bestAuto": "将自动选择最佳质量。",
-        "audioTitle": "高质量MP3",
-        "audioDesc": "我们将提取最高比特率的音频流。",
+        "audioTitle": "MP3 音频",
+        "audioDesc": "下载最佳音轨并转换为 MP3。未安装 FFmpeg 时保留原始音频格式。",
         "photoTitle": "高质量照片",
         "photoDesc": "下载最佳缩略图或捕获截图。",
         "timestampDetected": "检测到时间戳链接",
-        "estimatedSize": "~{{size}}"
+        "estimatedSize": "~{{size}}",
+        "sizeUnknown": "大小未知"
     },
     "searchModal": {
         "title": "搜索YouTube",

@@ -41,7 +41,8 @@
         "stopAllRunning": "Stop all running downloads",
         "noPausedToResume": "No paused downloads to resume",
         "resumeAllPaused": "Resume all paused downloads",
-        "cancelAllActive": "Cancel all active and paused downloads"
+        "cancelAllActive": "Cancel all active and paused downloads",
+        "paste": "Paste from clipboard"
     },
     "downloads": {
         "sectionTitle": "Download Queue",
@@ -258,7 +259,8 @@
         "installGuide": "Install Guide",
         "retryThis": "Retry this download",
         "copyDiagnostics": "Copy download diagnostics",
-        "openGuide": "Open dependency install guide"
+        "openGuide": "Open dependency install guide",
+        "preparing": "Preparing…"
     },
     "formatSelector": {
         "title": "Choose Format",
@@ -292,12 +294,13 @@
         "mobileMeaning": "means smoother playback on most phones.",
         "noQualities": "No explicit quality options found.",
         "bestAuto": "Best quality will be selected automatically.",
-        "audioTitle": "High Quality Video to MP3",
-        "audioDesc": "We'll extract the audio stream with the highest available bitrate.",
+        "audioTitle": "MP3 audio",
+        "audioDesc": "Downloads the best audio track and converts it to MP3. Without FFmpeg, the original audio format is kept.",
         "photoTitle": "High Quality Photo",
         "photoDesc": "Download the best thumbnail, or capture a screenshot when the URL includes a time.",
         "timestampDetected": "Timestamp Link Detected",
-        "estimatedSize": "~{{size}}"
+        "estimatedSize": "~{{size}}",
+        "sizeUnknown": "Size unknown"
     },
     "searchModal": {
         "title": "Search YouTube",

@@ -9,7 +9,6 @@ interface UrlPreviewProps {
     isLoading: boolean;
     isEnriching?: boolean;
     error?: string;
-    onDownload: () => void;
 }
 
 const formatDuration = (seconds: number): string => {
@@ -29,19 +28,17 @@ const formatViewCount = (count: number): string => {
     return count.toString();
 };
 
-const formatUploadDate = (dateStr: string): string => {
+const formatUploadDate = (dateStr: string, locale: string): string => {
     // yt-dlp format: YYYYMMDD
-    if (dateStr.length === 8) {
-        const year = dateStr.slice(0, 4);
-        const month = dateStr.slice(4, 6);
-        const day = dateStr.slice(6, 8);
-        return `${month}/${day}/${year}`;
+    if (/^\d{8}$/.test(dateStr)) {
+        const date = new Date(Number(dateStr.slice(0, 4)), Number(dateStr.slice(4, 6)) - 1, Number(dateStr.slice(6, 8)));
+        return date.toLocaleDateString(locale);
     }
     return dateStr;
 };
 
-const UrlPreview: React.FC<UrlPreviewProps> = ({ videoInfo, isLoading, isEnriching = false, error, onDownload }) => {
-    const { t } = useTranslation();
+const UrlPreview: React.FC<UrlPreviewProps> = ({ videoInfo, isLoading, isEnriching = false, error }) => {
+    const { t, i18n } = useTranslation();
     if (isLoading) {
         return (
             <div className="bg-card/80 backdrop-blur-sm border border-foreground/8 rounded-2xl p-6 flex items-center justify-center gap-3">
@@ -103,17 +100,17 @@ const UrlPreview: React.FC<UrlPreviewProps> = ({ videoInfo, isLoading, isEnrichi
                                 <span>{videoInfo.uploader}</span>
                             </div>
 
-                            {videoInfo.view_count && (
+                            {videoInfo.view_count ? (
                                 <div className="flex items-center gap-1">
                                     <Eye className="w-4 h-4" />
                                     <span>{formatViewCount(videoInfo.view_count)} {t('urlPreview.views', { count: videoInfo.view_count, defaultValue: 'views' })}</span>
                                 </div>
-                            )}
+                            ) : null}
 
                             {videoInfo.upload_date && (
                                 <div className="flex items-center gap-1">
                                     <Calendar className="w-4 h-4" />
-                                    <span>{formatUploadDate(videoInfo.upload_date)}</span>
+                                    <span>{formatUploadDate(videoInfo.upload_date, i18n.language)}</span>
                                 </div>
                             )}
                         </div>
@@ -150,26 +147,17 @@ const UrlPreview: React.FC<UrlPreviewProps> = ({ videoInfo, isLoading, isEnrichi
                             </div>
                         ) : null}
 
-                        <div className="flex items-center gap-3">
-                            {/* External link */}
-                            {videoInfo.webpage_url && (
-                                <a
-                                    href={videoInfo.webpage_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="p-2 rounded-lg hover:bg-foreground/10 text-foreground/40 hover:text-foreground transition-colors"
-                                >
-                                    <ExternalLink className="w-4 h-4" />
-                                </a>
-                            )}
-
-                            <button
-                                onClick={onDownload}
-                                className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors shadow-lg shadow-black/15"
+                        {/* External link; downloading starts from the URL form's button. */}
+                        {videoInfo.webpage_url && (
+                            <a
+                                href={videoInfo.webpage_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-2 rounded-lg hover:bg-foreground/10 text-foreground/40 hover:text-foreground transition-colors"
                             >
-                                {t('urlPreview.download')}
-                            </button>
-                        </div>
+                                <ExternalLink className="w-4 h-4" />
+                            </a>
+                        )}
                     </div>
                 </div>
             </div>

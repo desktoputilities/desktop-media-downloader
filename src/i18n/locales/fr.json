@@ -41,7 +41,8 @@
         "stopAllRunning": "Arrêter tous les téléchargements en cours",
         "noPausedToResume": "Aucun téléchargement en pause à reprendre",
         "resumeAllPaused": "Reprendre tous les téléchargements en pause",
-        "cancelAllActive": "Annuler tous les téléchargements actifs et en pause"
+        "cancelAllActive": "Annuler tous les téléchargements actifs et en pause",
+        "paste": "Coller depuis le presse-papiers"
     },
     "downloads": {
         "sectionTitle": "File de Téléchargement",
@@ -227,7 +228,8 @@
         "installGuide": "Guide d'Installation",
         "retryThis": "Réessayer ce téléchargement",
         "copyDiagnostics": "Copier les diagnostics de téléchargement",
-        "openGuide": "Ouvrir le guide d'installation des dépendances"
+        "openGuide": "Ouvrir le guide d'installation des dépendances",
+        "preparing": "Préparation…"
     },
     "formatSelector": {
         "title": "Choisir le Format",
@@ -261,12 +263,13 @@
         "mobileMeaning": "lecture plus fluide sur la plupart des téléphones.",
         "noQualities": "Aucune option de qualité explicite trouvée.",
         "bestAuto": "La meilleure qualité sera sélectionnée automatiquement.",
-        "audioTitle": "MP3 Haute Qualité",
-        "audioDesc": "Nous extrairons le flux audio avec le débit le plus élevé.",
+        "audioTitle": "Audio MP3",
+        "audioDesc": "Télécharge la meilleure piste audio et la convertit en MP3. Sans FFmpeg, le format audio d’origine est conservé.",
         "photoTitle": "Photo Haute Qualité",
         "photoDesc": "Téléchargez la meilleure miniature ou capturez une capture d'écran.",
         "timestampDetected": "Lien avec Horodatage Détecté",
-        "estimatedSize": "~{{size}}"
+        "estimatedSize": "~{{size}}",
+        "sizeUnknown": "Taille inconnue"
     },
     "searchModal": {
         "title": "Rechercher YouTube",

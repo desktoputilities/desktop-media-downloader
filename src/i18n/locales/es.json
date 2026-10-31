@@ -41,7 +41,8 @@
         "stopAllRunning": "Detener todas las descargas en ejecución",
         "noPausedToResume": "No hay descargas pausadas para reanudar",
         "resumeAllPaused": "Reanudar todas las descargas pausadas",
-        "cancelAllActive": "Cancelar todas las descargas activas y pausadas"
+        "cancelAllActive": "Cancelar todas las descargas activas y pausadas",
+        "paste": "Pegar desde el portapapeles"
     },
     "downloads": {
         "sectionTitle": "Cola de Descargas",
@@ -227,7 +228,8 @@
         "installGuide": "Guía de Instalación",
         "retryThis": "Reintentar esta descarga",
         "copyDiagnostics": "Copiar diagnósticos de descarga",
-        "openGuide": "Abrir guía de instalación de dependencias"
+        "openGuide": "Abrir guía de instalación de dependencias",
+        "preparing": "Preparando…"
     },
     "formatSelector": {
         "title": "Elegir Formato",
@@ -261,12 +263,13 @@
         "mobileMeaning": "reproducción más fluida en la mayoría de los teléfonos.",
         "noQualities": "Sin opciones de calidad explícitas.",
         "bestAuto": "La mejor calidad se seleccionará automáticamente.",
-        "audioTitle": "MP3 de Alta Calidad",
-        "audioDesc": "Extraeremos el audio con la tasa de bits más alta.",
+        "audioTitle": "Audio MP3",
+        "audioDesc": "Descarga la mejor pista de audio y la convierte a MP3. Sin FFmpeg, se conserva el formato de audio original.",
         "photoTitle": "Foto de Alta Calidad",
         "photoDesc": "Descargue la mejor miniatura o capture una captura de pantalla.",
         "timestampDetected": "Enlace con Marca de Tiempo",
-        "estimatedSize": "~{{size}}"
+        "estimatedSize": "~{{size}}",
+        "sizeUnknown": "Tamaño desconocido"
     },
     "searchModal": {
         "title": "Buscar YouTube",

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useDownloads, VideoInfo } from '../context/DownloadContext';
 import {
     ArrowRight,
-    Link as LinkIcon,
     Video,
     Music,
     Image as ImageIcon,
@@ -333,39 +332,30 @@ const Home: React.FC = () => {
                 className="panel p-4 lg:p-5 relative"
             >
                 <div className="relative flex flex-col gap-4">
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-                        <div className="flex items-center gap-3 rounded-xl bg-foreground/5 px-3 py-2 text-sm text-foreground/70">
-                            <LinkIcon className="w-5 h-5 text-primary" />
-                            <span>{t('home.pasteAnyLink')}</span>
-                        </div>
-                        {clipboardUrl && !url && (
-                            <button
-                                type="button"
-                                onClick={() => handleUrlChange(clipboardUrl)}
-                                className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs bg-primary/15 text-primary border border-primary/20 hover:bg-primary/25 transition-colors"
-                            >
-                                <Zap className="w-4 h-4" />
-                                {t('home.pasteDetected')}
-                            </button>
-                        )}
-                    </div>
-
                     <div className="relative flex items-center bg-secondary/50 border border-foreground/10 rounded-2xl p-3 focus-within:border-primary/50 transition-all shadow-sm">
                         <input
                             type="text"
                             value={url}
                             onChange={(e) => handleUrlChange(e.target.value)}
-                            placeholder="https://youtu.be/..."
+                            placeholder={t('home.pasteAnyLink')}
+                            aria-label={t('home.pasteAnyLink')}
                             className="flex-1 bg-transparent border-none focus:ring-0 text-foreground placeholder:text-foreground/40 h-12 px-2 outline-none text-base"
                         />
                         <div className="flex items-center gap-2">
+                            {/* One paste control: highlighted when a link is already on the clipboard. */}
                             <button
                                 type="button"
-                                onClick={handlePaste}
-                                className="p-2 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground transition-colors"
-                                title="Paste from clipboard"
+                                onClick={() => (clipboardUrl && !url ? handleUrlChange(clipboardUrl) : void handlePaste())}
+                                className={cn(
+                                    'flex items-center gap-1.5 p-2 rounded-lg transition-colors text-xs',
+                                    clipboardUrl && !url
+                                        ? 'bg-primary/15 text-primary hover:bg-primary/25'
+                                        : 'text-foreground/60 hover:bg-foreground/10 hover:text-foreground'
+                                )}
+                                title={clipboardUrl && !url ? clipboardUrl : t('home.paste', 'Paste from clipboard')}
                             >
                                 <Clipboard className="w-4 h-4" />
+                                {clipboardUrl && !url && <span>{t('home.pasteDetected')}</span>}
                             </button>
                             <button
                                 type="submit"
@@ -506,7 +496,6 @@ const Home: React.FC = () => {
                                 isLoading={isLoadingInfo}
                                 isEnriching={isEnrichingInfo}
                                 error={infoError}
-                                onDownload={() => setShowFormatSelector(true)}
                             />
                         </div>
                     </motion.div>
@@ -620,6 +609,7 @@ const Home: React.FC = () => {
                 onSelect={handleFormatSelect}
                 availableQualities={videoInfo?.videoQualities}
                 qualitySizes={videoInfo?.videoQualitySizes}
+                qualityDetails={videoInfo?.videoQualityDetails}
                 isLoadingQualities={isEnrichingInfo}
                 defaultQuality={settings.defaultQuality}
                 defaultTurboEnabled={settings.enableTurboDownload}
