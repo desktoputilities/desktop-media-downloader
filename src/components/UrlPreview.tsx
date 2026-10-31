@@ -2,6 +2,7 @@ import React from 'react';
 import { Loader2, Clock, Eye, User, Calendar, ExternalLink, Video } from 'lucide-react';
 import { VideoInfo } from '../context/DownloadContext';
 import { useTranslation } from 'react-i18next';
+import { siteNameFromExtractor } from '../lib/siteNames';
 
 interface UrlPreviewProps {
     videoInfo: VideoInfo | null;
@@ -38,16 +39,7 @@ const formatUploadDate = (dateStr: string, locale: string): string => {
     return dateStr;
 };
 
-// yt-dlp reports extractor keys such as "Youtube" or "youtube:tab".
-const KNOWN_SOURCES: Record<string, string> = {
-    youtube: 'YouTube', vimeo: 'Vimeo', tiktok: 'TikTok', instagram: 'Instagram', twitter: 'X', x: 'X',
-    bluesky: 'Bluesky', reddit: 'Reddit', pinterest: 'Pinterest', imgur: 'Imgur', tumblr: 'Tumblr', flickr: 'Flickr',
-    soundcloud: 'SoundCloud', wikimedia: 'Wikimedia', deviantart: 'DeviantArt', artstation: 'ArtStation', pixiv: 'pixiv', threads: 'Threads',
-};
-const formatSource = (extractor?: string): string => {
-    if (!extractor) return 'Video';
-    return KNOWN_SOURCES[extractor.split(':')[0].toLowerCase()] || extractor;
-};
+const formatSource = (extractor?: string): string => siteNameFromExtractor(extractor) || 'Video';
 
 const UrlPreview: React.FC<UrlPreviewProps> = ({ videoInfo, isLoading, isEnriching = false, error, children }) => {
     const { t, i18n } = useTranslation();
