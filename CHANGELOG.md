@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Video downloads now prefer plain HTTPS streams over HLS at the same resolution, which is much faster on YouTube.
+- HLS and DASH streams now fetch four fragments at a time by default, and fragment retries back off instead of retrying immediately.
+
+### Fixed
+
+- Files with `.part` in their title are no longer deleted during finalization, and a download with no output file now reports an error instead of success.
+- Successful photo downloads no longer show "Download did not start".
+- Retry and Boost keep the original title and file name template, so they continue from partial files.
+- Pause and cancel now work during source detection and retry countdowns.
+- Restarting a download no longer loses track of its process.
+- The download queue is now saved while downloads are running.
+
 ## [1.0.1] - 2026-10-18
 
 ### Changed

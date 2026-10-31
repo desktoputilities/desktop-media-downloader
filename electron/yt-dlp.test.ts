@@ -4,10 +4,52 @@ import {
   buildYtDlpArgs,
   classifyDownloadFailure,
   decodeDumpedPages,
+  getNetworkRetryArgs,
+  getVideoFormatSortArgs,
   getYtDlpRuntimeConfig,
+  isStagedTempFile,
   normalizeHttpUrl,
   parseYtDlpProgress,
 } from './yt-dlp'
+
+describe('download arguments', () => {
+  it('ranks protocol above bitrate so HTTPS beats HLS at the same resolution', () => {
+    const [flag, sort] = getVideoFormatSortArgs()
+
+    expect(flag).toBe('-S')
+    expect(sort.split(',')).toEqual(['res', 'proto', 'br'])
+  })
+
+  it('backs off between fragment retries as well as HTTP retries', () => {
+    const args = getNetworkRetryArgs()
+    const retrySleeps = args.filter((_, index) => args[index - 1] === '--retry-sleep')
+
+    expect(retrySleeps).toEqual(['3', 'fragment:exp=1:20'])
+  })
+})
+
+describe('staged file detection', () => {
+  it.each([
+    'abc_Title.mp4.part',
+    'abc_Title.f299.mp4.part',
+    'abc_Title.f312.mp4.part-Frag12',
+    'abc_Title.f312.mp4.part-Frag12.part',
+    'abc_Title.mp4.ytdl',
+    'abc_Title.temp',
+    'abc_Title.TMP',
+  ])('treats %s as temporary', (name) => {
+    expect(isStagedTempFile(name)).toBe(true)
+  })
+
+  it.each([
+    'abc_Movie.Part 2.mp4',
+    'abc_Movie.part1.mkv',
+    'abc_counterpart.mp4',
+    'abc_Lecture.part.mp4',
+  ])('keeps %s', (name) => {
+    expect(isStagedTempFile(name)).toBe(false)
+  })
+})
 
 describe('yt-dlp runtime configuration', () => {
   it('enables the embedded Node runtime when it can run YouTube challenges', () => {

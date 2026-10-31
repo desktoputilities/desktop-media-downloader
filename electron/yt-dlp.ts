@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStd
 
 export const MIN_YOUTUBE_JS_NODE_MAJOR = 22
 export const PROGRESS_PREFIX = 'desktop-media-progress'
+export const DEFAULT_CONCURRENT_FRAGMENTS = 4
 
 export interface YtDlpRuntimeContext {
   executablePath: string
@@ -100,6 +101,21 @@ export const buildVideoFormatSelector = ({
     ? `bv*[height<=${parsedQuality}]+ba/b[height<=${parsedQuality}]/bv*+ba/b`
     : 'bv*+ba/b'
 }
+
+// Prefer plain HTTPS over HLS at the same resolution. It is the same stream on
+// YouTube and far faster to fetch. `res,br` alone favoured the fragmented copy.
+// Keep `br` so generic extractors with custom labels (HQ/LQ) still pick the best.
+export const getVideoFormatSortArgs = (): string[] => ['-S', 'res,proto,br']
+
+// Network resilience defaults for unstable links/VPN transitions. A bare
+// --retry-sleep covers HTTP only, so fragments need their own backoff.
+export const getNetworkRetryArgs = (): string[] => [
+  '--retries', '8',
+  '--fragment-retries', '20',
+  '--retry-sleep', '3',
+  '--retry-sleep', 'fragment:exp=1:20',
+  '--socket-timeout', '30',
+]
 
 export const getProgressTemplateArgs = (): string[] => [
   '--progress-template',
@@ -251,6 +267,12 @@ export const classifyDownloadFailure = (
     message: errorLine?.replace(/^error:\s*/i, '').slice(0, 500) || `Download failed with code ${code}`,
   }
 }
+
+// Match yt-dlp's temporary suffixes only at the end of the name, so titles such
+// as "Movie.Part 2.mp4" are kept.
+export const isStagedTempFile = (fileName: string): boolean => (
+  /\.part(-frag\d+(\.part)?)?$|\.(ytdl|temp|tmp)$/i.test(fileName)
+)
 
 // yt-dlp's --dump-pages prints each fetched page base64-encoded on its own line,
 // mixed with plain log lines. Decode the page lines and drop the rest.

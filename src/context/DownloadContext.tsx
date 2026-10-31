@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { removeAllTerminalDownloads, removeRelatedTerminalDownloads } from './downloadState';
+import {
+    buildRestartOptions,
+    createThrottledWriter,
+    PLACEHOLDER_TITLE,
+    removeAllTerminalDownloads,
+    removeRelatedTerminalDownloads,
+} from './downloadState';
 
 export interface DownloadItem {
     id: string;
@@ -17,6 +23,7 @@ export interface DownloadItem {
     adaptiveTurboDownload?: boolean;
     turboConnections?: number;
     photoTimestampMode?: 'screenshot' | 'thumbnail';
+    fileNameTemplate?: string;
     error?: string;
     completedAt?: string;
 }
@@ -114,7 +121,7 @@ interface DownloadContextType {
 const HISTORY_STORAGE_KEY = 'desktop-media-download-history';
 const DOWNLOADS_STORAGE_KEY = 'desktop-media-downloads';
 const SETTINGS_STORAGE_KEY = 'desktop-media-settings';
-const SAVE_DEBOUNCE_MS = 1000;
+const SAVE_THROTTLE_MS = 1000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const QUICK_CACHE_TTL_MS = 30 * 60 * 1000;
 
@@ -137,6 +144,18 @@ const defaultSettings: DownloadSettings = {
     // Notifications
     enableNotifications: true,
 };
+
+const createStorageWriter = <T,>(key: string) => createThrottledWriter<T>((value) => {
+    try {
+        localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+        console.error(`Failed to save ${key} to localStorage:`, e);
+    }
+}, SAVE_THROTTLE_MS);
+
+const downloadsWriter = createStorageWriter<DownloadItem[]>(DOWNLOADS_STORAGE_KEY);
+const historyWriter = createStorageWriter<HistoryItem[]>(HISTORY_STORAGE_KEY);
+const settingsWriter = createStorageWriter<DownloadSettings>(SETTINGS_STORAGE_KEY);
 
 const DownloadContext = createContext<DownloadContextType | undefined>(undefined);
 
@@ -169,9 +188,6 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [settings, setSettings] = useState<DownloadSettings>(defaultSettings);
 
-    const downloadsSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const historySaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const settingsSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const progressQueue = React.useRef<Map<string, { progress: number; speed?: string; eta?: string; queuedAt: number }>>(new Map());
     const progressRaf = React.useRef<number | null>(null);
     const pendingTerminalState = React.useRef<Map<string, { status: 'completed' | 'error'; error?: string }>>(new Map());
@@ -218,41 +234,24 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, []);
 
     useEffect(() => () => {
-        if (downloadsSaveTimer.current) clearTimeout(downloadsSaveTimer.current);
-        if (historySaveTimer.current) clearTimeout(historySaveTimer.current);
-        if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current);
+        downloadsWriter.cancel();
+        historyWriter.cancel();
+        settingsWriter.cancel();
         if (progressRaf.current) cancelAnimationFrame(progressRaf.current);
     }, []);
 
-    const scheduleSave = useCallback((key: string, value: unknown, timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>, enabled = true) => {
-        if (!enabled) return;
-        if (timerRef.current) {
-            clearTimeout(timerRef.current);
-        }
-        timerRef.current = setTimeout(() => {
-            try {
-                localStorage.setItem(key, JSON.stringify(value));
-            } catch (e) {
-                console.error(`Failed to save ${key} to localStorage:`, e);
-            }
-        }, SAVE_DEBOUNCE_MS);
-    }, []);
+    useEffect(() => {
+        downloadsWriter.schedule(downloads);
+    }, [downloads]);
 
     useEffect(() => {
-        scheduleSave(DOWNLOADS_STORAGE_KEY, downloads, downloadsSaveTimer);
-    }, [downloads, scheduleSave]);
-
-    useEffect(() => {
-        scheduleSave(HISTORY_STORAGE_KEY, history, historySaveTimer, settings.historyEnabled);
-    }, [history, settings.historyEnabled, scheduleSave]);
+        if (settings.historyEnabled) historyWriter.schedule(history);
+    }, [history, settings.historyEnabled]);
 
     useEffect(() => {
         if (settings.historyEnabled) return;
 
-        if (historySaveTimer.current) {
-            clearTimeout(historySaveTimer.current);
-            historySaveTimer.current = null;
-        }
+        historyWriter.cancel();
 
         if (history.length > 0) {
             setHistory([]);
@@ -262,8 +261,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, [settings.historyEnabled, history]);
 
     useEffect(() => {
-        scheduleSave(SETTINGS_STORAGE_KEY, settings, settingsSaveTimer);
-    }, [settings, scheduleSave]);
+        settingsWriter.schedule(settings);
+    }, [settings]);
 
     // Sync notification settings to main process
     useEffect(() => {
@@ -529,7 +528,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             const seededItem: DownloadItem = {
                 id: downloadOptions.id,
                 url,
-                title: info?.title || 'Preparing download...',
+                title: info?.title || PLACEHOLDER_TITLE,
                 thumbnail: info?.thumbnail,
                 progress: 0,
                 status: 'pending',
@@ -540,6 +539,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 adaptiveTurboDownload: adaptiveTurbo,
                 turboConnections,
                 photoTimestampMode: parsedOptions.photoTimestampMode,
+                fileNameTemplate: settings.fileNameTemplate,
             };
 
             setDownloads(prev => {
@@ -604,7 +604,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 return;
             }
 
-            if (!result || result.status !== 'started') {
+            // Photos return 'completed', and early pause/cancel return 'paused'/'canceled'.
+            // An 'error' with no message has already been reported by the main process.
+            if (!result || (result.status === 'error' && result.error)) {
                 throw new Error(result?.error || 'Download did not start');
             }
 
@@ -693,30 +695,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
             // Fallback: if main process lost paused state (e.g. app restart),
             // restart using the same id so yt-dlp can continue partial files.
-            if (!resumed) {
-                const options = {
-                    id,
-                    url: download.url,
-                    format: download.format || 'video',
-                    quality: download.quality,
-                    cookiesFromBrowser: settings.cookiesFromBrowser,
-                    embedSubtitles: settings.embedSubtitles,
-                    subtitleLanguages: settings.subtitleLanguages,
-                    embedMetadata: settings.embedMetadata,
-                    preserveThumbnail: settings.preserveThumbnail,
-                    embedAltAudio: settings.embedAltAudio,
-                    preferredAudioLang: settings.preferredAudioLang,
-                    enableTurboDownload: download.enableTurboDownload ?? settings.enableTurboDownload,
-                    adaptiveTurboDownload: download.adaptiveTurboDownload ?? settings.adaptiveTurboDownload,
-                    turboConnections: download.turboConnections ?? settings.turboConnections,
-                    photoTimestampMode: download.photoTimestampMode,
-                    outputDir: download.outputDir,
-                };
-
-                if (window.electronAPI?.startDownload) {
-                    await window.electronAPI.startDownload(options);
-                    resumed = true;
-                }
+            if (!resumed && window.electronAPI?.startDownload) {
+                await window.electronAPI.startDownload(buildRestartOptions(download, settings));
+                resumed = true;
             }
 
             if (!resumed) {
@@ -782,32 +763,21 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Use a conservative boost floor that is faster but still stable for most hosts.
         const boostedConnections = Math.max(download.turboConnections || settings.turboConnections || 8, 12);
 
-        const boostedOptions = {
-            id,
-            url: download.url,
-            format: download.format || 'video',
-            quality: download.quality,
-            cookiesFromBrowser: settings.cookiesFromBrowser,
-            embedSubtitles: settings.embedSubtitles,
-            subtitleLanguages: settings.subtitleLanguages,
-            embedMetadata: settings.embedMetadata,
-            preserveThumbnail: settings.preserveThumbnail,
-            embedAltAudio: settings.embedAltAudio,
-            preferredAudioLang: settings.preferredAudioLang,
-            enableTurboDownload: true,
-            adaptiveTurboDownload: false,
-            turboConnections: boostedConnections,
-            photoTimestampMode: download.photoTimestampMode,
-            outputDir: download.outputDir,
-        };
-
         try {
             if (window.electronAPI?.pauseDownload) {
                 await window.electronAPI.pauseDownload(id);
             }
 
             if (window.electronAPI?.startDownload) {
-                await window.electronAPI.startDownload(boostedOptions);
+                // Reuse the options the main process kept, including any resolved source.
+                const paused = await window.electronAPI.resumeDownload?.(id);
+                await window.electronAPI.startDownload({
+                    ...(paused?.options ?? buildRestartOptions(download, settings)),
+                    id,
+                    enableTurboDownload: true,
+                    adaptiveTurboDownload: false,
+                    turboConnections: boostedConnections,
+                });
             }
 
             setDownloads(prev => prev.map(d =>

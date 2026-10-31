@@ -8,7 +8,11 @@ import {
   buildVideoFormatSelector,
   classifyDownloadFailure,
   decodeDumpedPages,
+  DEFAULT_CONCURRENT_FRAGMENTS,
+  getNetworkRetryArgs,
   getProgressTemplateArgs,
+  getVideoFormatSortArgs,
+  isStagedTempFile,
   normalizeHttpUrl,
   parseYtDlpProgress,
   spawnYtDlp,
@@ -71,7 +75,12 @@ interface DownloadInfo {
   progress: number;
 }
 const activeDownloads = new Map<string, DownloadInfo>();
-const pendingRetryTimers = new Map<string, NodeJS.Timeout>();
+interface PendingRetry {
+  timer: NodeJS.Timeout;
+  options: any;
+  progress: number;
+}
+const pendingRetryTimers = new Map<string, PendingRetry>();
 // Store paused downloads (killed but can be resumed)
 const pausedDownloads = new Map<string, any>();
 // Track intentionally paused downloads (so we don't send error events when killed)
@@ -296,7 +305,8 @@ const clampTurboConnections = (value?: number): number => {
 const calculateAdaptiveTurboConnections = (requested?: number): number => {
   const requestedConnections = clampTurboConnections(requested);
   const cpuCount = Math.max(2, os.cpus().length || 2);
-  const inFlightDownloads = Math.max(1, activeDownloads.size + 1);
+  // The download being started is already registered in activeDownloads.
+  const inFlightDownloads = Math.max(1, activeDownloads.size);
 
   // Keep per-download concurrency conservative as parallel downloads increase.
   const perDownloadShare = Math.max(2, Math.ceil(requestedConnections / inFlightDownloads));
@@ -306,12 +316,28 @@ const calculateAdaptiveTurboConnections = (requested?: number): number => {
 };
 
 const clearPendingRetryTimer = (downloadId: string) => {
-  const retryTimer = pendingRetryTimers.get(downloadId);
-  if (retryTimer) {
-    clearTimeout(retryTimer);
+  const pendingRetry = pendingRetryTimers.get(downloadId);
+  if (pendingRetry) {
+    clearTimeout(pendingRetry.timer);
     pendingRetryTimers.delete(downloadId);
   }
 };
+
+// Resolves once the process has released its files. Placeholder and direct-engine
+// entries have no process to wait for. The timeout stops a stuck process from
+// blocking pause or cancel.
+const waitForProcessClose = (proc: any, timeoutMs = 5000): Promise<void> => new Promise((resolve) => {
+  if (typeof proc?.once !== 'function') {
+    resolve();
+    return;
+  }
+
+  const timer = setTimeout(resolve, timeoutMs);
+  proc.once('close', () => {
+    clearTimeout(timer);
+    resolve();
+  });
+});
 
 const terminateProcessTree = (proc: any) => {
   const pid = Number(proc?.pid);
@@ -1597,13 +1623,12 @@ const finalizeStagedDownload = async (
   // Move only completed artifacts; skip temp/partial metadata files.
   const completed = names.filter((name) => {
     if (!name.startsWith(prefix)) return false;
-    const lower = name.toLowerCase();
-    if (lower.includes('.part') || lower.endsWith('.ytdl') || lower.endsWith('.temp') || lower.endsWith('.tmp')) {
+    if (isStagedTempFile(name)) {
       return false;
     }
 
     // Keep thumbnail sidecars transient in staging; embedding is done by yt-dlp/ffmpeg.
-    const ext = path.extname(lower);
+    const ext = path.extname(name.toLowerCase());
     if (!options?.includeImages && sidecarImageExts.has(ext)) {
       return false;
     }
@@ -1612,7 +1637,7 @@ const finalizeStagedDownload = async (
   });
 
   if (completed.length === 0) {
-    return;
+    throw new Error('Download finished but no output file was found');
   }
 
   await Promise.all(completed.map(async (name) => {
@@ -3400,6 +3425,13 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
   let targetUrl = opts.url;
   let finalOutputPath = outputPath;
 
+  // Register before source selection so pause and cancel work while probes run.
+  activeDownloads.set(downloadId, {
+    process: { kill: () => undefined },
+    options: opts,
+    progress: 0,
+  });
+
   // Smart direct-media fallback for all page URLs.
   // We compare extractor and direct candidates, then choose the highest-confidence quality path.
   const requestedQuality = parseRequestedQuality(opts.quality);
@@ -3524,6 +3556,14 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     // Preserve original-link metadata/title to avoid source-page mismatches.
   }
 
+  if (intentionallyCanceledIds.delete(downloadId)) {
+    return { id: downloadId, status: 'canceled' };
+  }
+
+  if (intentionallyPausedIds.delete(downloadId)) {
+    return { id: downloadId, status: 'paused' };
+  }
+
   const ffmpegReady = isFfmpegAvailable();
 
   const isDirectExtractedUrl = (() => {
@@ -3584,9 +3624,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     args.push('-f', formatSelector);
     console.log('[Format Selection]', { formatSelector, ffmpegReady, requestedQuality: opts.quality || 'best' });
 
-    // Bias yt-dlp toward the highest available visual quality on generic extractors
-    // that expose custom labels (e.g. HQ/LQ) without explicit quality ranks.
-    args.push('-S', 'res,br');
+    args.push(...getVideoFormatSortArgs());
   }
 
   // Enhanced options: Subtitles
@@ -3639,7 +3677,9 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     args.push('--cookies-from-browser', opts.cookiesFromBrowser);
   }
 
-  // Turbo mode: parallel fragment fetching with yt-dlp's native downloader.
+  // Parallel fragment fetching with yt-dlp's native downloader. This only affects
+  // HLS/DASH streams; plain HTTP downloads ignore it. Fragmented streams are slow
+  // one at a time, so they always get a baseline and Turbo raises it.
   if (opts.enableTurboDownload) {
     const requestedConnections = clampTurboConnections(opts.turboConnections);
     const turboConnections = opts.adaptiveTurboDownload === false
@@ -3651,21 +3691,15 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
       console.log('[Turbo Download] Adaptive throttle applied:', {
         requested: requestedConnections,
         effective: turboConnections,
-        activeDownloads: activeDownloads.size + 1,
+        activeDownloads: activeDownloads.size,
         cpuCores: os.cpus().length || 2,
       });
     }
-
-    // yt-dlp's native fragment downloader supports HLS/DASH safely and avoids
-    // handing manifest content to an external process. Concurrent fragments are
-    // the supported acceleration path for modern YouTube downloads.
+  } else {
+    args.push('--concurrent-fragments', String(DEFAULT_CONCURRENT_FRAGMENTS));
   }
 
-  // Network resilience defaults for unstable links/VPN transitions.
-  args.push('--retries', '8');
-  args.push('--fragment-retries', '20');
-  args.push('--retry-sleep', '3');
-  args.push('--socket-timeout', '30');
+  args.push(...getNetworkRetryArgs());
 
   const buildArgsForUrl = (url: string) => {
     const attemptArgs = [...args];
@@ -3750,13 +3784,17 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
           eta: `retrying in ${Math.ceil(retryDelayMs / 1000)}s`,
         });
 
-        pendingRetryTimers.set(downloadId, setTimeout(() => {
-          pendingRetryTimers.delete(downloadId);
-          if (intentionallyCanceledIds.has(downloadId) || intentionallyPausedIds.has(downloadId)) {
-            return;
-          }
-          launchDirectAttempt(nextAttempt);
-        }, retryDelayMs));
+        pendingRetryTimers.set(downloadId, {
+          timer: setTimeout(() => {
+            pendingRetryTimers.delete(downloadId);
+            if (intentionallyCanceledIds.has(downloadId) || intentionallyPausedIds.has(downloadId)) {
+              return;
+            }
+            launchDirectAttempt(nextAttempt);
+          }, retryDelayMs),
+          options: opts,
+          progress: 0,
+        });
         return;
       }
 
@@ -3881,7 +3919,10 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
       if (stdoutProgressBuffer) emitProgressFromText(stdoutProgressBuffer);
       if (stderrProgressBuffer) emitProgressFromText(stderrProgressBuffer);
       clearPendingRetryTimer(downloadId);
-      activeDownloads.delete(downloadId);
+      // A late close must not drop the entry of a restart that reuses this id.
+      if (activeDownloads.get(downloadId)?.process === subprocess) {
+        activeDownloads.delete(downloadId);
+      }
 
       // Intentional cancel should be silent from the queue perspective.
       if (intentionallyCanceledIds.has(downloadId)) {
@@ -3995,21 +4036,25 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
             eta: `retrying in ${Math.ceil(retryDelayMs / 1000)}s`,
           });
 
-          pendingRetryTimers.set(downloadId, setTimeout(() => {
-            pendingRetryTimers.delete(downloadId);
-            if (intentionallyCanceledIds.has(downloadId) || intentionallyPausedIds.has(downloadId)) {
-              return;
-            }
+          pendingRetryTimers.set(downloadId, {
+            timer: setTimeout(() => {
+              pendingRetryTimers.delete(downloadId);
+              if (intentionallyCanceledIds.has(downloadId) || intentionallyPausedIds.has(downloadId)) {
+                return;
+              }
 
-            try {
-              launchAttempt(nextAttempt);
-            } catch (retryError: any) {
-              win?.webContents.send('download-error', {
-                id: downloadId,
-                error: retryError?.message || classification.message,
-              });
-            }
-          }, retryDelayMs));
+              try {
+                launchAttempt(nextAttempt);
+              } catch (retryError: any) {
+                win?.webContents.send('download-error', {
+                  id: downloadId,
+                  error: retryError?.message || classification.message,
+                });
+              }
+            }, retryDelayMs),
+            options: opts,
+            progress: lastProgress,
+          });
 
           return;
         }
@@ -4025,7 +4070,9 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
 
     subprocess.on('error', (err: Error) => {
       clearPendingRetryTimer(downloadId);
-      activeDownloads.delete(downloadId);
+      if (activeDownloads.get(downloadId)?.process === subprocess) {
+        activeDownloads.delete(downloadId);
+      }
       win?.webContents.send('download-error', {
         id: downloadId,
         error: err.message
@@ -4041,6 +4088,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     }
     return { id: downloadId, status: 'started' };
   } catch (error: any) {
+    activeDownloads.delete(downloadId);
     return {
       id: downloadId,
       status: 'error',
@@ -4114,9 +4162,11 @@ ipcMain.handle('cancel-download', async (_event, downloadId: string) => {
   if (downloadInfo) {
     intentionallyPausedIds.delete(downloadId);
     intentionallyCanceledIds.add(downloadId);
+    const closed = waitForProcessClose(downloadInfo.process);
     terminateProcessTree(downloadInfo.process);
     activeDownloads.delete(downloadId);
     pausedDownloads.delete(downloadId); // Also remove from paused if exists
+    await closed;
     await cleanStagedArtifacts(downloadId, stagingDir);
     return { success: true };
   }
@@ -4144,6 +4194,7 @@ ipcMain.handle('cancel-download', async (_event, downloadId: string) => {
 // Pause download - kills process but saves state for resume
 ipcMain.handle('pause-download', async (_event, downloadId: string) => {
   const downloadInfo = activeDownloads.get(downloadId);
+  const pendingRetry = pendingRetryTimers.get(downloadId);
   clearPendingRetryTimer(downloadId);
   if (downloadInfo) {
     // Mark as intentionally paused (so close handler won't send error)
@@ -4155,9 +4206,20 @@ ipcMain.handle('pause-download', async (_event, downloadId: string) => {
       progress: downloadInfo.progress
     });
     // Kill the process
+    const closed = waitForProcessClose(downloadInfo.process);
     terminateProcessTree(downloadInfo.process);
     activeDownloads.delete(downloadId);
+    await closed;
     return { success: true, progress: downloadInfo.progress };
+  }
+
+  // Waiting between retries: nothing to kill, but the options are still needed to resume.
+  if (pendingRetry) {
+    pausedDownloads.set(downloadId, {
+      options: pendingRetry.options,
+      progress: pendingRetry.progress
+    });
+    return { success: true, progress: pendingRetry.progress };
   }
   return { success: false, error: 'Download not found' };
 });
@@ -4205,7 +4267,7 @@ app.on('window-all-closed', () => {
       // Ignore
     }
   });
-  pendingRetryTimers.forEach((timer) => clearTimeout(timer));
+  pendingRetryTimers.forEach((pendingRetry) => clearTimeout(pendingRetry.timer));
   pendingRetryTimers.clear();
   activeDownloads.clear();
   pausedDownloads.clear();
