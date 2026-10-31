@@ -135,7 +135,14 @@
         "security1": "The project should never ship with embedded API keys or private credentials.",
         "security2": "Browser cookie usage is optional and only for user-controlled authenticated access.",
         "security3": "Before publishing, always re-scan for secrets and keep build artifacts out of git.",
-        "disclaimer": "This page is informational and not legal advice. For commercial or high-risk usage, consult a qualified legal professional."
+        "disclaimer": "This page is informational and not legal advice. For commercial or high-risk usage, consult a qualified legal professional.",
+        "updateDownloading": "Downloading {{percent}}%",
+        "restartToUpdate": "Restart to update",
+        "updateAvailableDescAuto": "Click Update to download it in the app. It installs when you restart; your settings and history are kept.",
+        "updateReadyDesc": "Version {{version}} is ready. Restart to finish; running downloads stop. Otherwise it installs the next time you close the app.",
+        "updateFailed": "The update could not be downloaded: {{error}}",
+        "openDownloadPage": "Open download page",
+        "updateDownloadStarting": "Downloading…"
     },
     "settings": {
         "title": "Settings",

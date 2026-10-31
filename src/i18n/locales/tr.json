@@ -135,7 +135,14 @@
         "security1": "Proje asla gömülü API anahtarları veya özel kimlik bilgileri ile yayınlanmamalıdır.",
         "security2": "Tarayıcı çerez kullanımı isteğe bağlıdır ve yalnızca kullanıcı kontrollü kimlik doğrulamalı erişim içindir.",
         "security3": "Yayınlamadan önce her zaman gizli bilgileri yeniden tarayın ve derleme çıktılarını git'ten uzak tutun.",
-        "disclaimer": "Bu sayfa bilgilendirme amaçlıdır ve hukuki tavsiye niteliğinde değildir. Ticari veya yüksek riskli kullanım için nitelikli bir hukuk uzmanına danışın."
+        "disclaimer": "Bu sayfa bilgilendirme amaçlıdır ve hukuki tavsiye niteliğinde değildir. Ticari veya yüksek riskli kullanım için nitelikli bir hukuk uzmanına danışın.",
+        "updateDownloading": "İndiriliyor %{{percent}}",
+        "restartToUpdate": "Yeniden başlat ve güncelle",
+        "updateAvailableDescAuto": "Uygulama içinde indirmek için Güncelle'ye tıklayın. Yeniden başlatınca kurulur; ayarlarınız ve geçmişiniz korunur.",
+        "updateReadyDesc": "{{version}} sürümü hazır. Tamamlamak için yeniden başlatın; süren indirmeler durur. Aksi halde uygulamayı bir sonraki kapatışınızda kurulur.",
+        "updateFailed": "Güncelleme indirilemedi: {{error}}",
+        "openDownloadPage": "İndirme sayfasını aç",
+        "updateDownloadStarting": "İndiriliyor…"
     },
     "settings": {
         "title": "Ayarlar",

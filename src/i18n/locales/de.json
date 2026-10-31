@@ -135,7 +135,14 @@
         "security1": "Das Projekt sollte niemals mit eingebetteten API-Schlüsseln oder privaten Zugangsdaten ausgeliefert werden.",
         "security2": "Die Nutzung von Browser-Cookies ist optional und nur für benutzergesteuerten authentifizierten Zugang.",
         "security3": "Vor der Veröffentlichung immer nach Geheimnissen suchen und Build-Artefakte aus git halten.",
-        "disclaimer": "Diese Seite dient der Information und stellt keine Rechtsberatung dar. Für kommerzielle oder risikoreiche Nutzung einen qualifizierten Rechtsberater konsultieren."
+        "disclaimer": "Diese Seite dient der Information und stellt keine Rechtsberatung dar. Für kommerzielle oder risikoreiche Nutzung einen qualifizierten Rechtsberater konsultieren.",
+        "updateDownloading": "Wird geladen: {{percent}} %",
+        "restartToUpdate": "Neu starten und aktualisieren",
+        "updateAvailableDescAuto": "Klicke auf Aktualisieren, um es in der App herunterzuladen. Es wird beim Neustart installiert; Einstellungen und Verlauf bleiben erhalten.",
+        "updateReadyDesc": "Version {{version}} ist bereit. Starte neu, um abzuschließen; laufende Downloads werden beendet. Sonst wird sie beim nächsten Schließen der App installiert.",
+        "updateFailed": "Das Update konnte nicht geladen werden: {{error}}",
+        "openDownloadPage": "Downloadseite öffnen",
+        "updateDownloadStarting": "Wird geladen…"
     },
     "settings": {
         "appLanguage": "App-Sprache",

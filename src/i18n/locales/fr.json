@@ -135,7 +135,14 @@
         "security1": "Le projet ne devrait jamais être livré avec des clés API intégrées ou des identifiants privés.",
         "security2": "L'utilisation des cookies du navigateur est optionnelle et uniquement pour l'accès authentifié contrôlé par l'utilisateur.",
         "security3": "Avant de publier, toujours re-scanner les secrets et garder les artefacts de build hors de git.",
-        "disclaimer": "Cette page est informative et ne constitue pas un conseil juridique. Pour un usage commercial ou à haut risque, consultez un professionnel juridique qualifié."
+        "disclaimer": "Cette page est informative et ne constitue pas un conseil juridique. Pour un usage commercial ou à haut risque, consultez un professionnel juridique qualifié.",
+        "updateDownloading": "Téléchargement {{percent}} %",
+        "restartToUpdate": "Redémarrer pour mettre à jour",
+        "updateAvailableDescAuto": "Cliquez sur Mettre à jour pour la télécharger dans l'app. Elle s'installe au redémarrage ; vos réglages et votre historique sont conservés.",
+        "updateReadyDesc": "La version {{version}} est prête. Redémarrez pour terminer ; les téléchargements en cours s'arrêtent. Sinon, elle s'installe à la prochaine fermeture de l'app.",
+        "updateFailed": "Impossible de télécharger la mise à jour : {{error}}",
+        "openDownloadPage": "Ouvrir la page de téléchargement",
+        "updateDownloadStarting": "Téléchargement…"
     },
     "settings": {
         "appLanguage": "Langue de l'App",

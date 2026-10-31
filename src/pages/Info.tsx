@@ -15,9 +15,17 @@ const Info: React.FC = () => {
         publishedAt: string | null;
     } | null>(null);
 
+    const [canSelfUpdate, setCanSelfUpdate] = useState(false);
+    const [appUpdate, setAppUpdate] = useState<AppUpdateState>({ status: 'idle' });
+
     useEffect(() => {
         loadAppInfo();
         checkForUpdates(false);
+        window.electronAPI?.getAppUpdateState?.().then(({ canSelfUpdate: supported, ...state }) => {
+            setCanSelfUpdate(supported);
+            setAppUpdate(state as AppUpdateState);
+        }).catch(() => undefined);
+        return window.electronAPI?.onAppUpdateState?.(setAppUpdate);
     }, []);
 
     const loadAppInfo = async () => {
@@ -57,6 +65,18 @@ const Info: React.FC = () => {
         }
     };
 
+    const handleUpdate = async () => {
+        if (!canSelfUpdate || !window.electronAPI?.downloadAppUpdate) {
+            await handleOpenUpdatePage();
+            return;
+        }
+        if (appUpdate.status === 'ready') {
+            await window.electronAPI.installAppUpdate();
+            return;
+        }
+        await window.electronAPI.downloadAppUpdate();
+    };
+
     const handleOpenUpdatePage = async () => {
         if (!updateInfo?.releaseUrl) return;
 
@@ -82,12 +102,18 @@ const Info: React.FC = () => {
                                     <span>{t('info.versionInfo', { version: appVersion })}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    {updateInfo?.updateAvailable && (
+                                    {(updateInfo?.updateAvailable || appUpdate.status === 'ready') && (
                                         <button
-                                            onClick={handleOpenUpdatePage}
-                                            className="px-3 py-1.5 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 text-sm transition-colors"
+                                            onClick={() => void handleUpdate()}
+                                            disabled={appUpdate.status === 'downloading'}
+                                            className="px-3 py-1.5 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-70 text-sm transition-colors inline-flex items-center gap-1.5"
                                         >
-                                            {t('info.update')}
+                                            {appUpdate.status === 'downloading' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                                            {appUpdate.status === 'downloading'
+                                                ? appUpdate.percent > 0 ? t('info.updateDownloading', { percent: appUpdate.percent }) : t('info.updateDownloadStarting')
+                                                : appUpdate.status === 'ready'
+                                                    ? t('info.restartToUpdate')
+                                                    : t('info.update')}
                                         </button>
                                     )}
                                     <button
@@ -115,7 +141,19 @@ const Info: React.FC = () => {
 
                             {updateInfo?.updateAvailable && (
                                 <div className="mt-3 p-2 bg-primary/10 rounded-lg text-xs text-primary">
-                                    {t('info.updateAvailableDesc')}
+                                    {appUpdate.status === 'ready'
+                                        ? t('info.updateReadyDesc', { version: appUpdate.version })
+                                        : canSelfUpdate
+                                            ? t('info.updateAvailableDescAuto')
+                                            : t('info.updateAvailableDesc')}
+                                </div>
+                            )}
+                            {appUpdate.status === 'error' && (
+                                <div className="mt-3 p-2 bg-foreground/5 border border-foreground/15 rounded-lg text-xs text-foreground/70 flex items-center justify-between gap-3">
+                                    <span>{t('info.updateFailed', { error: appUpdate.error })}</span>
+                                    <button onClick={() => void handleOpenUpdatePage()} className="underline whitespace-nowrap shrink-0">
+                                        {t('info.openDownloadPage')}
+                                    </button>
                                 </div>
                             )}
                             {!updateInfo?.updateAvailable && updateInfo && (

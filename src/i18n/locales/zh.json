@@ -135,7 +135,14 @@
         "security1": "项目不应包含嵌入式API密钥或私有凭证。",
         "security2": "浏览器Cookie的使用是可选的，仅用于用户控制的认证访问。",
         "security3": "发布前务必重新扫描机密信息，并将构建产物排除在git之外。",
-        "disclaimer": "此页面仅供参考，不构成法律建议。"
+        "disclaimer": "此页面仅供参考，不构成法律建议。",
+        "updateDownloading": "正在下载 {{percent}}%",
+        "restartToUpdate": "重启以更新",
+        "updateAvailableDescAuto": "点击“更新”即可在应用内下载。重启时安装，设置和历史记录会保留。",
+        "updateReadyDesc": "版本 {{version}} 已就绪。重启即可完成，正在进行的下载会停止。否则将在下次关闭应用时安装。",
+        "updateFailed": "无法下载更新：{{error}}",
+        "openDownloadPage": "打开下载页面",
+        "updateDownloadStarting": "正在下载…"
     },
     "settings": {
         "appLanguage": "应用语言",

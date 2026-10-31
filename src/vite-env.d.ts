@@ -1,5 +1,11 @@
 /// <reference types="vite/client" />
 
+type AppUpdateState =
+    | { status: 'idle' }
+    | { status: 'downloading'; version?: string; percent: number }
+    | { status: 'ready'; version: string }
+    | { status: 'error'; error: string };
+
 interface EngineStatus {
     autoUpdate: boolean;
     lastCheckedAt: number | null;
@@ -88,6 +94,10 @@ interface Window {
                 node: string;
             };
         }>;
+        getAppUpdateState: () => Promise<AppUpdateState & { canSelfUpdate: boolean }>;
+        downloadAppUpdate: () => Promise<{ success: boolean; error?: string }>;
+        installAppUpdate: () => Promise<{ success: boolean }>;
+        onAppUpdateState: (listener: (state: AppUpdateState) => void) => () => void;
         checkForUpdates: () => Promise<{
             success: boolean;
             data?: {

@@ -55,6 +55,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // App info
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  getAppUpdateState: () => ipcRenderer.invoke('get-app-update-state'),
+  downloadAppUpdate: () => ipcRenderer.invoke('download-app-update'),
+  installAppUpdate: () => ipcRenderer.invoke('install-app-update'),
+  onAppUpdateState: (listener: DownloadEventListener<unknown>) => subscribe('app-update-state', listener),
 
   // Setup wizard helpers
   getRuntimeDependenciesStatus: () => ipcRenderer.invoke('get-runtime-dependencies-status'),

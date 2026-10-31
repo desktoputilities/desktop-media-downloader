@@ -53,6 +53,7 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.11",
     "framer-motion": "^12.23.25",
     "i18next": "^25.8.13",
     "lucide-react": "^0.556.0",

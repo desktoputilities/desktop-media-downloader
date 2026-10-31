@@ -40,6 +40,7 @@ import {
   type SniffedMedia,
 } from './media-resolver'
 import { baseDomainOf, parseCookieExport, summarizeCookieSites } from './site-cookies'
+import { autoUpdater } from 'electron-updater'
 import {
   compareVersions,
   ENGINES,
@@ -3404,6 +3405,72 @@ ipcMain.handle('get-app-info', async () => {
       node: process.versions.node,
     }
   };
+});
+
+// ==================== APP UPDATES ====================
+// The Windows installer and the Linux AppImage update in place from the
+// GitHub release (checked against the sha512 in latest.yml). macOS needs a
+// signed app for that, so it keeps opening the download page.
+type AppUpdateState =
+  | { status: 'idle' }
+  | { status: 'downloading'; version?: string; percent: number }
+  | { status: 'ready'; version: string }
+  | { status: 'error'; error: string };
+
+let appUpdateState: AppUpdateState = { status: 'idle' };
+let appUpdaterReady = false;
+
+const canSelfUpdate = () =>
+  app.isPackaged && (process.platform === 'win32' || (process.platform === 'linux' && Boolean(process.env.APPIMAGE)));
+
+const setAppUpdateState = (state: AppUpdateState) => {
+  appUpdateState = state;
+  win?.webContents.send('app-update-state', state);
+};
+
+const setUpAppUpdater = () => {
+  if (appUpdaterReady) return;
+  appUpdaterReady = true;
+  autoUpdater.autoDownload = false;
+  // A downloaded update also installs when the app is closed normally.
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('download-progress', (progress) => {
+    if (appUpdateState.status === 'downloading') setAppUpdateState({ ...appUpdateState, percent: Math.round(progress.percent) });
+  });
+  autoUpdater.on('update-downloaded', (info) => setAppUpdateState({ status: 'ready', version: info.version }));
+  autoUpdater.on('error', (error) => {
+    if (appUpdateState.status === 'downloading') setAppUpdateState({ status: 'error', error: error?.message || String(error) });
+  });
+};
+
+ipcMain.handle('get-app-update-state', async () => ({ ...appUpdateState, canSelfUpdate: canSelfUpdate() }));
+
+ipcMain.handle('download-app-update', async () => {
+  if (!canSelfUpdate()) return { success: false, error: 'unsupported' };
+  if (appUpdateState.status === 'downloading' || appUpdateState.status === 'ready') return { success: true };
+  setUpAppUpdater();
+  try {
+    setAppUpdateState({ status: 'downloading', percent: 0 });
+    const result = await autoUpdater.checkForUpdates();
+    const version = result?.updateInfo?.version;
+    if (!version || compareSemver(normalizeVersion(app.getVersion()), normalizeVersion(version)) >= 0) {
+      setAppUpdateState({ status: 'idle' });
+      return { success: false, error: 'No newer version' };
+    }
+    setAppUpdateState({ status: 'downloading', version, percent: 0 });
+    await autoUpdater.downloadUpdate();
+    return { success: true };
+  } catch (error: any) {
+    setAppUpdateState({ status: 'error', error: error?.message || 'Update failed' });
+    return { success: false, error: appUpdateState.status === 'error' ? appUpdateState.error : 'Update failed' };
+  }
+});
+
+ipcMain.handle('install-app-update', async () => {
+  if (appUpdateState.status !== 'ready') return { success: false };
+  // Closing the window stops running downloads, so the installer can replace the bundled engines.
+  setImmediate(() => autoUpdater.quitAndInstall(true, true));
+  return { success: true };
 });
 
 ipcMain.handle('check-for-updates', async () => {
