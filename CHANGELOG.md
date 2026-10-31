@@ -10,8 +10,7 @@ All notable changes to this project are documented in this file.
 - A bundled, checksum-verified gallery-dl reads image posts and galleries that yt-dlp does not.
 - Links that neither engine knows are opened in a hidden, sandboxed window to find the page's main video or image; other videos, thumbnails and ads on the page are left out.
 - Requests a site blocks are retried once with browser impersonation.
-- Sign in to a site inside the app (Settings → Account, or the prompt on Home when a post needs an account) instead of sharing your browser's cookies. The sign-in is kept in its own session on this computer, and the site's cookies are used only for that site.
-- Import cookies exported from a browser profile (cookies.txt or JSON from a cookie extension). Each site in the file replaces that site's earlier cookies, so sites signed in on different Chrome profiles can each be imported from their own profile. Settings lists the saved sites with a sign-out for each.
+- Import cookies exported from a browser profile (cookies.txt or JSON from a cookie extension) in Settings → Account, or from the prompt on Home when a post needs an account. Each site in the file replaces that site's earlier cookies, so sites signed in on different Chrome profiles can each be imported from their own profile, and each site's cookies are sent only to that site. Settings lists the saved sites with a remove button for each.
 - Search covers SoundCloud, Bilibili and Niconico next to YouTube, plus Instagram hashtags and X, Reddit, Bluesky and Pinterest posts. Search opens on the site of the link on Home, and other sites get an experimental "this site" search that uses their own search page.
 - A download queue: at most three downloads run at once by default (Settings → Downloads → Parallel downloads), and the rest show as "Queued". Playlists and multi-select search no longer start every video together.
 - Open file and Show in folder (with the file selected) on finished downloads in Home, Downloads and History.
@@ -39,7 +38,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Choosing Chrome, Edge or another Chromium browser for cookies on Windows silently failed: those browsers now lock and encrypt their cookies so no other app can read them. Settings now says so and points to importing cookies or signing in.
+- Choosing Chrome, Edge or another Chromium browser for cookies on Windows silently failed: those browsers now lock and encrypt their cookies so no other app can read them. Settings now says so and points to importing cookies.
 - History kept only one YouTube download: every youtube.com link got the same history ID, so each download replaced the last.
 - Files with `.part` in their title are no longer deleted during finalization, and a download with no output file now reports an error instead of success.
 - Successful photo downloads no longer show "Download did not start".

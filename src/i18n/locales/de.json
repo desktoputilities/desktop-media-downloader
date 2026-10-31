@@ -31,10 +31,9 @@
         "seeAll": "Alle anzeigen",
         "dropHint": "Link mit Strg+V einfügen oder irgendwo ins Fenster ziehen",
         "dropToStart": "Link zum Starten ablegen",
-        "loginRequired": "Melde dich bei {{site}} an, um diese Medien zu laden.",
+        "loginRequired": "{{site}} erfordert dafür ein Konto. Importiere Cookies aus einem Browserprofil, das dort angemeldet ist.",
         "fetchBlocked": "Die Seite hat die Anfrage blockiert. Versuche es erneut oder melde dich an.",
         "fetchFailed": "Auf dieser Seite wurden keine herunterladbaren Medien gefunden.",
-        "signInHere": "Anmelden",
         "tryAgain": "Erneut versuchen"
     },
     "downloads": {
@@ -177,15 +176,13 @@
         "parallelDownloadsDesc": "Wie viele Downloads gleichzeitig laufen. Der Rest wartet in der Warteschlange.",
         "advancedSection": "Erweitert",
         "shortcutPaste": "Link einfügen (jede Ansicht)",
-        "siteSignIn": "Bei Websites anmelden",
-        "siteSignInDesc": "Für Beiträge, die ein Konto brauchen, ohne die Cookies deines Browsers zu teilen. Die Anmeldung bleibt auf diesem Computer.",
-        "signIn": "Anmelden",
-        "signOut": "Abmelden",
         "importCookies": "Cookies importieren",
-        "importCookiesHelp": "Nur im Browser angemeldet? Exportiere im Browserprofil, das bei der Website angemeldet ist, die Cookies mit einer cookies.txt-Erweiterung (z. B. „Get cookies.txt LOCALLY“) und importiere die Datei hier. Einmal pro Profil; jede Website nutzt nur ihre eigenen Cookies.",
+        "importCookiesHelp": "Exportiere im Browserprofil, das bei einer Website angemeldet ist, die Cookies mit einer cookies.txt-Erweiterung (z. B. „Get cookies.txt LOCALLY“) und importiere die Datei hier. Einmal pro Profil; jede Website nutzt nur ihre eigenen Cookies.",
         "cookiesImported": "Cookies für {{sites}} importiert.",
         "cookiesImportFailed": "Aus dieser Datei konnten keine Cookies importiert werden.",
-        "chromiumCookiesNote": "Unter Windows lassen Chrome, Edge und andere Chromium-Browser andere Apps ihre Cookies nicht mehr lesen. Importiere stattdessen Cookies oder melde dich unten an."
+        "chromiumCookiesNote": "Unter Windows lassen Chrome, Edge und andere Chromium-Browser andere Apps ihre Cookies nicht mehr lesen. Nutze stattdessen unten „Cookies importieren“.",
+        "siteCookies": "Website-Cookies",
+        "removeCookies": "Cookies entfernen"
     },
     "setupWizard": {
         "languageStep": "Sprache Wählen",
@@ -290,12 +287,12 @@
         "downloadSingle": "Herunterladen",
         "downloadSelected": "Videos Herunterladen",
         "downloadAudioBtn": "Audio Herunterladen",
-        "hashtagHint": "Sucht nach einem Hashtag. Anmeldung erforderlich.",
+        "hashtagHint": "Sucht nach einem Hashtag. Benötigt importierte Instagram-Cookies.",
         "siteSearchHint": "Nutzt die Suche dieser Website. Funktioniert bei manchen Websites.",
-        "needsSignIn": "Anmeldung erforderlich",
         "openPost": "Medien auswählen",
         "titleFor": "{{site}} durchsuchen",
-        "placeholderFor": "{{site}} durchsuchen..."
+        "placeholderFor": "{{site}} durchsuchen...",
+        "needsCookies": "Benötigt importierte Cookies"
     },
     "playlistModal": {
         "title": "Playlist-Download",

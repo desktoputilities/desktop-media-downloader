@@ -46,9 +46,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAvailableBrowsers: () => ipcRenderer.invoke('get-available-browsers'),
   validateBrowserCookies: (browser: string) => ipcRenderer.invoke('validate-browser-cookies', browser),
 
-  // In-app sign-in to a site (alternative to browser cookies)
-  openSiteLogin: (site: string) => ipcRenderer.invoke('site-login-open', site),
-  getSiteLoginStatus: (site: string) => ipcRenderer.invoke('site-login-status', site),
+  // Cookies imported from browser profiles, per site
   clearSiteLogin: (site?: string) => ipcRenderer.invoke('site-login-clear', site),
   // Without content, opens a file picker for a cookies.txt or JSON export.
   importSiteCookies: (content?: string) => ipcRenderer.invoke('site-cookies-import', content),

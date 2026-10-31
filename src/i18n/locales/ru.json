@@ -31,10 +31,9 @@
         "seeAll": "Показать все",
         "dropHint": "Вставьте ссылку через Ctrl+V или перетащите её в любое место окна",
         "dropToStart": "Отпустите ссылку, чтобы начать",
-        "loginRequired": "Войдите в {{site}}, чтобы получить эти медиафайлы.",
+        "loginRequired": "Для этого {{site}} требует аккаунт. Импортируйте cookie из профиля браузера, где выполнен вход.",
         "fetchBlocked": "Сайт заблокировал запрос. Повторите попытку или войдите.",
         "fetchFailed": "На этой странице не найдено медиафайлов для загрузки.",
-        "signInHere": "Войти",
         "tryAgain": "Повторить"
     },
     "downloads": {
@@ -177,15 +176,13 @@
         "parallelDownloadsDesc": "Сколько загрузок выполняется одновременно. Остальные ждут в очереди.",
         "advancedSection": "Дополнительно",
         "shortcutPaste": "Вставить ссылку (на любом экране)",
-        "siteSignIn": "Вход на сайты",
-        "siteSignInDesc": "Для публикаций, требующих аккаунта, без передачи cookie браузера. Вход хранится на этом компьютере.",
-        "signIn": "Войти",
-        "signOut": "Выйти",
         "importCookies": "Импорт cookie",
-        "importCookiesHelp": "Вход выполнен только в браузере? В профиле браузера, где выполнен вход на сайт, экспортируйте cookie расширением cookies.txt (например, «Get cookies.txt LOCALLY») и импортируйте файл здесь. Один раз для каждого профиля; каждый сайт использует только свои cookie.",
+        "importCookiesHelp": "В профиле браузера, где выполнен вход на сайт, экспортируйте cookie расширением cookies.txt (например, «Get cookies.txt LOCALLY») и импортируйте файл здесь. Один раз для каждого профиля; каждый сайт использует только свои cookie.",
         "cookiesImported": "Импортированы cookie для {{sites}}.",
         "cookiesImportFailed": "Не удалось импортировать cookie из этого файла.",
-        "chromiumCookiesNote": "В Windows Chrome, Edge и другие браузеры на Chromium больше не дают другим приложениям читать свои cookie. Импортируйте cookie или войдите ниже."
+        "chromiumCookiesNote": "В Windows Chrome, Edge и другие браузеры на Chromium больше не дают другим приложениям читать свои cookie. Используйте «Импорт cookie» ниже.",
+        "siteCookies": "Cookie сайтов",
+        "removeCookies": "Удалить cookie"
     },
     "setupWizard": {
         "languageStep": "Выбрать язык",
@@ -290,12 +287,12 @@
         "downloadSingle": "Скачать",
         "downloadSelected": "Скачать видео",
         "downloadAudioBtn": "Скачать аудио",
-        "hashtagHint": "Ищет по хештегу. Нужен вход.",
+        "hashtagHint": "Ищет по хештегу. Нужны импортированные cookie Instagram.",
         "siteSearchHint": "Использует поиск самого сайта. Работает на некоторых сайтах.",
-        "needsSignIn": "Нужен вход",
         "openPost": "Выбрать медиа",
         "titleFor": "Поиск: {{site}}",
-        "placeholderFor": "Искать на {{site}}..."
+        "placeholderFor": "Искать на {{site}}...",
+        "needsCookies": "Нужны импортированные cookie"
     },
     "playlistModal": {
         "title": "Загрузка плейлиста",

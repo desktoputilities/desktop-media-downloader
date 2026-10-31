@@ -31,10 +31,9 @@
         "seeAll": "See all",
         "dropHint": "Paste a link with Ctrl+V or drop it anywhere in the window",
         "dropToStart": "Drop the link to start",
-        "loginRequired": "Sign in to {{site}} to get this media.",
+        "loginRequired": "{{site}} needs an account for this. Import cookies from a browser profile signed in to it.",
         "fetchBlocked": "The site blocked the request. Try again, or sign in to it.",
         "fetchFailed": "No downloadable media was found on this page.",
-        "signInHere": "Sign in",
         "tryAgain": "Try again"
     },
     "downloads": {
@@ -207,15 +206,13 @@
         "parallelDownloadsDesc": "How many downloads run at once. The rest wait in the queue.",
         "advancedSection": "Advanced",
         "shortcutPaste": "Paste a link (any screen)",
-        "siteSignIn": "Sign in to sites",
-        "siteSignInDesc": "For posts that need an account, without sharing your browser's cookies. The sign-in stays on this computer.",
-        "signIn": "Sign in",
-        "signOut": "Sign out",
         "importCookies": "Import cookies",
-        "importCookiesHelp": "Signed in only in your browser? In the browser profile that is signed in to the site, export its cookies with a cookies.txt extension (for example \"Get cookies.txt LOCALLY\") and import the file here. Do this once per profile; each site uses only its own cookies.",
+        "importCookiesHelp": "In the browser profile that is signed in to a site, export its cookies with a cookies.txt extension (for example \"Get cookies.txt LOCALLY\") and import the file here. Do this once per profile; each site uses only its own cookies.",
         "cookiesImported": "Imported cookies for {{sites}}.",
         "cookiesImportFailed": "No cookies could be imported from this file.",
-        "chromiumCookiesNote": "On Windows, Chrome, Edge and other Chromium browsers no longer let other apps read their cookies. Import cookies or sign in below instead."
+        "chromiumCookiesNote": "On Windows, Chrome, Edge and other Chromium browsers no longer let other apps read their cookies. Use Import cookies below instead.",
+        "siteCookies": "Site cookies",
+        "removeCookies": "Remove cookies"
     },
     "setupWizard": {
         "languageStep": "Choose Language",
@@ -320,12 +317,12 @@
         "downloadSingle": "Download",
         "downloadSelected": "Download Videos",
         "downloadAudioBtn": "Download Audio",
-        "hashtagHint": "Searches a hashtag. Needs you to be signed in.",
+        "hashtagHint": "Searches a hashtag. Needs imported Instagram cookies.",
         "siteSearchHint": "Uses this site's own search. Works on some sites.",
-        "needsSignIn": "Needs sign-in",
         "openPost": "Choose media",
         "titleFor": "Search {{site}}",
-        "placeholderFor": "Search {{site}}..."
+        "placeholderFor": "Search {{site}}...",
+        "needsCookies": "Needs imported cookies"
     },
     "playlistModal": {
         "title": "Playlist Download",

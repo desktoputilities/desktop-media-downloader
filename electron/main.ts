@@ -221,10 +221,10 @@ const spawnGalleryDl = (args: string[]) => spawn(getGalleryDlPath() || 'gallery-
   ...args,
 ], { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
 
-// ==================== SITE SIGN-IN COOKIES ====================
-// Users can sign in to a site inside the app instead of sharing their browser's
-// cookies. The sign-in window uses its own persistent session; its cookies are
-// exported in Netscape format for both engines.
+// ==================== IMPORTED SITE COOKIES ====================
+// Cookies imported from the user's browser profiles live in their own
+// persistent session and are exported in Netscape format for both engines.
+// The partition name is kept so existing imports stay.
 const SITE_LOGIN_PARTITION = 'persist:site-login';
 const getSiteCookiesFile = () => path.join(app.getPath('userData'), 'site-cookies.txt');
 
@@ -264,7 +264,7 @@ const siteDomainOf = (value: string): string => {
 
 const getStableIdFragment = (value: string) => crypto.createHash('sha1').update(value).digest('hex').slice(0, 16);
 
-// True when the in-app sign-in holds cookies for this link's site.
+// True when imported cookies exist for this link's site.
 const hasSiteLogin = (targetUrl: string): boolean => {
   const domain = siteDomainOf(targetUrl);
   if (!domain) return false;
@@ -280,7 +280,7 @@ const hasSiteLogin = (targetUrl: string): boolean => {
   }
 };
 
-// The in-app sign-in wins for its site; otherwise the browser chosen in Settings.
+// Imported cookies win for their site; otherwise the browser chosen in Settings.
 const cookieArgsFor = (engine: 'yt-dlp' | 'gallery-dl', targetUrl: string, browser?: string): string[] => {
   if (hasSiteLogin(targetUrl)) {
     return [engine === 'yt-dlp' ? '--cookies' : '-C', getSiteCookiesFile()];
@@ -2640,68 +2640,12 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
   });
 });
 
-// ==================== SITE SIGN-IN ====================
-const SITE_LOGIN_PAGES: Record<string, string> = {
-  'instagram.com': 'https://www.instagram.com/accounts/login/',
-  'x.com': 'https://x.com/i/flow/login',
-  'twitter.com': 'https://x.com/i/flow/login',
-  'tiktok.com': 'https://www.tiktok.com/login',
-  'reddit.com': 'https://www.reddit.com/login/',
-  'facebook.com': 'https://www.facebook.com/login/',
-  'pinterest.com': 'https://www.pinterest.com/login/',
-  'threads.net': 'https://www.threads.net/login',
-  'threads.com': 'https://www.threads.com/login',
-  'bsky.app': 'https://bsky.app/',
-};
-
+// ==================== SITE COOKIES ====================
 const normalizeSiteDomain = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
   const domain = (siteDomainOf(value) || value.trim().toLowerCase()).replace(/^(www\.|m\.|mobile\.)/, '');
   return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(domain) ? domain : null;
 };
-
-let siteLoginWin: BrowserWindow | null = null;
-
-// Opens the site's sign-in page in its own window; resolves when the user
-// closes it, with whether cookies for that site were saved.
-ipcMain.handle('site-login-open', async (_event, site: string) => {
-  const domain = normalizeSiteDomain(site);
-  if (!domain) return { success: false, error: 'Invalid site' };
-  const base = baseDomainOf(domain);
-  const loginUrl = SITE_LOGIN_PAGES[domain] || SITE_LOGIN_PAGES[base] || `https://${domain}/`;
-
-  siteLoginWin?.destroy();
-  const loginWin = new BrowserWindow({
-    width: 520,
-    height: 760,
-    parent: win || undefined,
-    title: `Sign in to ${base}`,
-    autoHideMenuBar: true,
-    webPreferences: {
-      partition: SITE_LOGIN_PARTITION,
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-  siteLoginWin = loginWin;
-  // Sign-in pop-ups (for example "Continue with Google") stay in the same session.
-  loginWin.webContents.setWindowOpenHandler(({ url: popupUrl }) => (
-    /^https:\/\//i.test(popupUrl) ? { action: 'allow' } : { action: 'deny' }
-  ));
-  loginWin.webContents.setUserAgent(getBrowserUserAgent());
-  void loginWin.loadURL(loginUrl);
-
-  await new Promise<void>((resolve) => loginWin.once('closed', () => resolve()));
-  if (siteLoginWin === loginWin) siteLoginWin = null;
-  await exportSiteCookies();
-  return { success: true, signedIn: hasSiteLogin(`https://${domain}/`) };
-});
-
-ipcMain.handle('site-login-status', async (_event, site?: string) => {
-  const domain = normalizeSiteDomain(site);
-  return { signedIn: domain ? hasSiteLogin(`https://${domain}/`) : false };
-});
 
 // Signs out of one site (its cookies only) or of every site.
 ipcMain.handle('site-login-clear', async (_event, site?: string) => {
@@ -2732,7 +2676,7 @@ const IMPORTED_SESSION_COOKIE_SECONDS = 30 * 24 * 60 * 60;
 const MAX_COOKIE_IMPORT_BYTES = 5 * 1024 * 1024;
 
 // Loads a cookies.txt or JSON export from the user's browser into the
-// sign-in session. Each site in the file replaces that site's earlier cookies,
+// imported-cookie session. Each site in the file replaces that site's earlier cookies,
 // so exporting each Chrome profile separately works.
 ipcMain.handle('site-cookies-import', async (_event, content?: string) => {
   let text = typeof content === 'string' ? content : '';
@@ -2791,7 +2735,7 @@ ipcMain.handle('site-cookies-import', async (_event, content?: string) => {
   return { success: imported > 0, imported, sites: sites.map((entry) => entry.site), ...(imported === 0 ? { error: 'No cookies could be imported' } : {}) };
 });
 
-// Sites with saved sign-in cookies, from the in-app sign-in or an import.
+// Sites with imported cookies.
 ipcMain.handle('site-login-list', async () => {
   try {
     const text = await fsPromises.readFile(getSiteCookiesFile(), 'utf-8');

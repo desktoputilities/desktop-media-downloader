@@ -31,10 +31,9 @@
         "seeAll": "すべて表示",
         "dropHint": "Ctrl+V でリンクを貼り付けるか、ウィンドウのどこかにドロップしてください",
         "dropToStart": "リンクをドロップして開始",
-        "loginRequired": "このメディアを取得するには{{site}}にサインインしてください。",
+        "loginRequired": "{{site}}ではアカウントが必要です。サインイン済みのブラウザプロファイルからCookieをインポートしてください。",
         "fetchBlocked": "サイトがリクエストをブロックしました。もう一度試すか、サインインしてください。",
         "fetchFailed": "このページにダウンロードできるメディアが見つかりませんでした。",
-        "signInHere": "サインイン",
         "tryAgain": "再試行"
     },
     "downloads": {
@@ -177,15 +176,13 @@
         "parallelDownloadsDesc": "同時に実行するダウンロードの数。残りはキューで待機します。",
         "advancedSection": "詳細設定",
         "shortcutPaste": "リンクを貼り付け（どの画面でも）",
-        "siteSignIn": "サイトにサインイン",
-        "siteSignInDesc": "アカウントが必要な投稿用です。ブラウザのCookieは共有しません。サインイン情報はこのコンピューターに保存されます。",
-        "signIn": "サインイン",
-        "signOut": "サインアウト",
         "importCookies": "Cookieをインポート",
-        "importCookiesHelp": "ブラウザでのみサインインしていますか？サイトにサインインしているブラウザのプロファイルで、cookies.txt拡張機能（例：「Get cookies.txt LOCALLY」）を使ってCookieをエクスポートし、ここでインポートしてください。プロファイルごとに1回です。各サイトは自分のCookieだけを使います。",
+        "importCookiesHelp": "サイトにサインインしているブラウザのプロファイルで、cookies.txt拡張機能（例：「Get cookies.txt LOCALLY」）を使ってCookieをエクスポートし、ここでインポートしてください。プロファイルごとに1回です。各サイトは自分のCookieだけを使います。",
         "cookiesImported": "{{sites}}のCookieをインポートしました。",
         "cookiesImportFailed": "このファイルからCookieをインポートできませんでした。",
-        "chromiumCookiesNote": "Windowsでは、Chrome、EdgeなどのChromium系ブラウザは他のアプリにCookieを読ませなくなりました。代わりにCookieをインポートするか、下でサインインしてください。"
+        "chromiumCookiesNote": "Windowsでは、Chrome、EdgeなどのChromium系ブラウザは他のアプリにCookieを読ませなくなりました。代わりに下の「Cookieをインポート」を使ってください。",
+        "siteCookies": "サイトのCookie",
+        "removeCookies": "Cookieを削除"
     },
     "setupWizard": {
         "languageStep": "言語を選択",
@@ -290,12 +287,12 @@
         "downloadSingle": "ダウンロード",
         "downloadSelected": "動画をダウンロード",
         "downloadAudioBtn": "音声をダウンロード",
-        "hashtagHint": "ハッシュタグを検索します。サインインが必要です。",
+        "hashtagHint": "ハッシュタグを検索します。InstagramのCookieのインポートが必要です。",
         "siteSearchHint": "このサイト自体の検索を使います。一部のサイトで動作します。",
-        "needsSignIn": "サインインが必要",
         "openPost": "メディアを選ぶ",
         "titleFor": "{{site}}を検索",
-        "placeholderFor": "{{site}}を検索..."
+        "placeholderFor": "{{site}}を検索...",
+        "needsCookies": "Cookieのインポートが必要"
     },
     "playlistModal": {
         "title": "プレイリストダウンロード",

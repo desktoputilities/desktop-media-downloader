@@ -63,9 +63,7 @@ interface Window {
             browser: string;
             message: string;
         }>;
-        // In-app sign-in
-        openSiteLogin: (site: string) => Promise<{ success: boolean; signedIn?: boolean; error?: string }>;
-        getSiteLoginStatus: (site: string) => Promise<{ signedIn: boolean }>;
+        // Imported site cookies
         clearSiteLogin: (site?: string) => Promise<{ success: boolean }>;
         importSiteCookies: (content?: string) => Promise<{ success: boolean; canceled?: boolean; imported?: number; sites?: string[]; error?: string }>;
         listSiteLogins: () => Promise<{ sites: string[] }>;

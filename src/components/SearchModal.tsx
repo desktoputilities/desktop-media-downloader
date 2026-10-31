@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { X, Search, Youtube, Loader2, Download, Music, Eye, Globe, Image as ImageIcon, Lock, LogIn, ArrowRight } from 'lucide-react';
+import { X, Search, Youtube, Loader2, Download, Music, Eye, Globe, Image as ImageIcon, Lock, Upload, ArrowRight } from 'lucide-react';
 import { useDownloads } from '../context/DownloadContext';
 import { cn, runWithConcurrency } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
@@ -91,7 +91,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, contextUrl, 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loginSite, setLoginSite] = useState<string | null>(null);
-    const [isSigningIn, setIsSigningIn] = useState(false);
+    const [isImportingCookies, setIsImportingCookies] = useState(false);
     const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
 
     // A site with no built-in search gets a "this site" tab using its own search.
@@ -131,14 +131,15 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, contextUrl, 
         }
     }, [query, platform, searchVideos]);
 
-    const handleSignIn = async () => {
-        if (!loginSite || !window.electronAPI?.openSiteLogin) return;
-        setIsSigningIn(true);
+    // Cookies exported from the browser profile signed in to the site, then search again.
+    const handleImportCookies = async () => {
+        if (!window.electronAPI?.importSiteCookies) return;
+        setIsImportingCookies(true);
         try {
-            const result = await window.electronAPI.openSiteLogin(loginSite);
-            if (result.signedIn) void handleSearch();
+            const result = await window.electronAPI.importSiteCookies();
+            if (result.success) void handleSearch();
         } finally {
-            setIsSigningIn(false);
+            setIsImportingCookies(false);
         }
     };
 
@@ -220,7 +221,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, contextUrl, 
                             <button
                                 key={p.id}
                                 onClick={() => { setPlatform(p.id); setResults([]); setError(null); setLoginSite(null); }}
-                                title={p.needsLogin ? t('searchModal.needsSignIn') : undefined}
+                                title={p.needsLogin ? t('searchModal.needsCookies') : undefined}
                                 className={cn(
                                     "flex items-center gap-2 px-3 py-1.5 rounded-lg font-medium text-sm transition-all",
                                     platform === p.id
@@ -278,12 +279,13 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, contextUrl, 
                                 <>
                                     <span>{t('home.loginRequired', { site: loginSite })}</span>
                                     <button
-                                        onClick={() => void handleSignIn()}
-                                        disabled={isSigningIn}
+                                        onClick={() => void handleImportCookies()}
+                                        disabled={isImportingCookies}
+                                        title={t('settings.importCookiesHelp')}
                                         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60"
                                     >
-                                        {isSigningIn ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
-                                        {t('home.signInHere')}
+                                        {isImportingCookies ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                                        {t('settings.importCookies')}
                                     </button>
                                 </>
                             ) : (

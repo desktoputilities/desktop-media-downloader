@@ -31,10 +31,9 @@
         "seeAll": "Tümünü gör",
         "dropHint": "Ctrl+V ile bir bağlantı yapıştırın veya pencerenin herhangi bir yerine bırakın",
         "dropToStart": "Başlamak için bağlantıyı bırakın",
-        "loginRequired": "Bu medyayı almak için {{site}} hesabına giriş yapın.",
+        "loginRequired": "{{site}} bunun için hesap istiyor. Siteye giriş yapmış bir tarayıcı profilinden çerezleri içe aktarın.",
         "fetchBlocked": "Site isteği engelledi. Tekrar deneyin veya giriş yapın.",
         "fetchFailed": "Bu sayfada indirilebilir medya bulunamadı.",
-        "signInHere": "Giriş yap",
         "tryAgain": "Tekrar dene"
     },
     "downloads": {
@@ -207,15 +206,13 @@
         "parallelDownloadsDesc": "Aynı anda kaç indirme çalışır. Diğerleri sırada bekler.",
         "advancedSection": "Gelişmiş",
         "shortcutPaste": "Bağlantı yapıştır (her ekranda)",
-        "siteSignIn": "Sitelere giriş yap",
-        "siteSignInDesc": "Hesap gerektiren gönderiler için, tarayıcı çerezlerinizi paylaşmadan. Giriş bu bilgisayarda kalır.",
-        "signIn": "Giriş yap",
-        "signOut": "Çıkış yap",
         "importCookies": "Çerezleri içe aktar",
-        "importCookiesHelp": "Yalnızca tarayıcınızda mı giriş yaptınız? Siteye giriş yapmış tarayıcı profilinde çerezleri bir cookies.txt uzantısıyla (ör. \"Get cookies.txt LOCALLY\") dışa aktarın ve dosyayı buraya aktarın. Her profil için bir kez yeterli; her site yalnızca kendi çerezlerini kullanır.",
+        "importCookiesHelp": "Bir siteye giriş yapmış tarayıcı profilinde çerezleri bir cookies.txt uzantısıyla (ör. \"Get cookies.txt LOCALLY\") dışa aktarın ve dosyayı buraya aktarın. Her profil için bir kez yeterli; her site yalnızca kendi çerezlerini kullanır.",
         "cookiesImported": "{{sites}} için çerezler içe aktarıldı.",
         "cookiesImportFailed": "Bu dosyadan çerez aktarılamadı.",
-        "chromiumCookiesNote": "Windows'ta Chrome, Edge ve diğer Chromium tarayıcılar artık başka uygulamaların çerezlerini okumasına izin vermiyor. Bunun yerine çerezleri içe aktarın veya aşağıdan giriş yapın."
+        "chromiumCookiesNote": "Windows'ta Chrome, Edge ve diğer Chromium tarayıcılar artık başka uygulamaların çerezlerini okumasına izin vermiyor. Bunun yerine aşağıdaki Çerezleri içe aktar'ı kullanın.",
+        "siteCookies": "Site çerezleri",
+        "removeCookies": "Çerezleri kaldır"
     },
     "setupWizard": {
         "firstRunSetup": "İlk Kurulum",
@@ -320,12 +317,12 @@
         "downloadSingle": "İndir",
         "downloadSelected": "Videoları İndir",
         "downloadAudioBtn": "Sesleri İndir",
-        "hashtagHint": "Bir hashtag arar. Giriş yapmanız gerekir.",
+        "hashtagHint": "Bir hashtag arar. İçe aktarılmış Instagram çerezleri gerekir.",
         "siteSearchHint": "Bu sitenin kendi aramasını kullanır. Bazı sitelerde çalışır.",
-        "needsSignIn": "Giriş gerekir",
         "openPost": "Medya seç",
         "titleFor": "{{site}} içinde ara",
-        "placeholderFor": "{{site}} içinde ara..."
+        "placeholderFor": "{{site}} içinde ara...",
+        "needsCookies": "İçe aktarılmış çerez gerekir"
     },
     "playlistModal": {
         "title": "Oynatma Listesi",
