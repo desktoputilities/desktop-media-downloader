@@ -87,7 +87,7 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
     const [isPlaylistUrl, setIsPlaylistUrl] = useState(false);
     const [clipboardUrl, setClipboardUrl] = useState<string | null>(null);
     // Why the full fetch failed, shown under the preview; 'login' offers a cookie import.
-    const [fetchProblem, setFetchProblem] = useState<{ kind: string; site?: string; message?: string } | null>(null);
+    const [fetchProblem, setFetchProblem] = useState<{ kind: string; site?: string; message?: string; cookiesExpired?: boolean } | null>(null);
     const [isImportingCookies, setIsImportingCookies] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const panelRef = useRef<FormatPanelHandle>(null);
@@ -198,7 +198,7 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
                     setInfoError(undefined);
                     return;
                 }
-                setFetchProblem({ kind: result.errorKind || 'other', site: result.site, message: result.error });
+                setFetchProblem({ kind: result.errorKind || 'other', site: result.site, message: result.error, cookiesExpired: result.cookiesExpired });
                 if (!hasQuickPreview) {
                     setInfoError(result.error || 'Could not fetch video info');
                     setVideoInfo(null);
@@ -379,7 +379,7 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
                                             {fetchProblem.kind === 'login' ? <Lock className="w-3.5 h-3.5 text-warning shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0" />}
                                             <span className="flex-1 min-w-[180px] text-foreground/80">
                                                 {fetchProblem.kind === 'login'
-                                                    ? t('home.loginRequired', { site: fetchProblem.site || '' })
+                                                    ? t(fetchProblem.cookiesExpired ? 'home.cookiesExpired' : 'home.loginRequired', { site: fetchProblem.site || '' })
                                                     : fetchProblem.kind === 'blocked'
                                                         ? t('home.fetchBlocked')
                                                         : t('home.fetchFailed')}

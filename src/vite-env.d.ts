@@ -1,5 +1,17 @@
 /// <reference types="vite/client" />
 
+interface EngineStatus {
+    autoUpdate: boolean;
+    lastCheckedAt: number | null;
+    updating: boolean;
+    engines: Array<{
+        id: 'yt-dlp' | 'gallery-dl';
+        version: string | null;
+        source: 'updated' | 'bundled' | 'system' | null;
+        updatable: boolean;
+    }>;
+}
+
 interface Window {
     electronAPI?: {
         minimize: () => void;
@@ -101,6 +113,18 @@ interface Window {
                 }>;
             };
         }>;
+        getEngineStatus: () => Promise<EngineStatus>;
+        updateEngines: () => Promise<{
+            results: Array<
+                | { engine: string; status: 'updated'; from: string | null; to: string }
+                | { engine: string; status: 'current'; version: string | null }
+                | { engine: string; status: 'unavailable' }
+                | { engine: string; status: 'error'; error: string }
+            >;
+            status: EngineStatus;
+        }>;
+        setEngineAutoUpdate: (enabled: boolean) => Promise<EngineStatus>;
+        onEnginesUpdated: (listener: (status: EngineStatus) => void) => () => void;
         openExternalUrl: (url: string) => Promise<{
             success: boolean;
             error?: string;

@@ -91,6 +91,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, contextUrl, 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loginSite, setLoginSite] = useState<string | null>(null);
+    const [cookiesExpired, setCookiesExpired] = useState(false);
     const [isImportingCookies, setIsImportingCookies] = useState(false);
     const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
 
@@ -123,6 +124,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, contextUrl, 
             } else {
                 setError(response.error || 'Search failed');
                 if (response.needsLogin && response.site) setLoginSite(response.site);
+                setCookiesExpired(Boolean(response.cookiesExpired));
             }
         } catch (e) {
             setError('Failed to search videos');
@@ -277,7 +279,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, contextUrl, 
                         <div className="flex flex-col items-center gap-3 text-center text-foreground/70 py-8">
                             {loginSite ? (
                                 <>
-                                    <span>{t('home.loginRequired', { site: loginSite })}</span>
+                                    <span>{t(cookiesExpired ? 'home.cookiesExpired' : 'home.loginRequired', { site: loginSite })}</span>
                                     <button
                                         onClick={() => void handleImportCookies()}
                                         disabled={isImportingCookies}

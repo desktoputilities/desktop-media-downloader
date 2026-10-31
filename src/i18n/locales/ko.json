@@ -34,7 +34,8 @@
         "loginRequired": "{{site}}에서는 계정이 필요합니다. 로그인된 브라우저 프로필에서 쿠키를 가져오세요.",
         "fetchBlocked": "사이트가 요청을 차단했습니다. 다시 시도하거나 로그인하세요.",
         "fetchFailed": "이 페이지에서 다운로드할 수 있는 미디어를 찾지 못했습니다.",
-        "tryAgain": "다시 시도"
+        "tryAgain": "다시 시도",
+        "cookiesExpired": "{{site}} 쿠키가 만료되었습니다. 해당 브라우저 프로필에서 {{site}}에 로그인한 뒤 쿠키를 다시 내보내고 다시 가져오세요."
     },
     "downloads": {
         "sectionTitle": "다운로드 대기열",
@@ -93,7 +94,19 @@
         "copied": "복사됨",
         "copyCommand": "명령 복사",
         "unavailable": "이 빌드에서는 종속성 점검을 사용할 수 없습니다.",
-        "loadError": "종속성 상태를 로드할 수 없습니다."
+        "loadError": "종속성 상태를 로드할 수 없습니다.",
+        "engineVersion": "버전 {{version}}",
+        "engineUpdatedTag": "업데이트됨",
+        "engineUpdatesTitle": "다운로드 엔진",
+        "engineUpdatesDescription": "Instagram, X, TikTok 같은 사이트는 자주 바뀝니다. 새 엔진 버전으로 앱 업데이트를 기다리지 않고 해결할 수 있습니다.",
+        "enginesLastChecked": "마지막 확인: {{time}}",
+        "enginesNeverChecked": "아직 확인하지 않음",
+        "updateEngines": "엔진 업데이트",
+        "enginesUpdating": "업데이트 중…",
+        "enginesUpdated": "{{engines}}(으)로 업데이트했습니다.",
+        "enginesCurrent": "엔진이 최신 상태입니다.",
+        "enginesUpdateFailed": "업데이트하지 못했습니다: {{error}}",
+        "enginesAutoUpdate": "하루에 한 번 엔진 업데이트 확인"
     },
     "info": {
         "appAndUpdates": "앱 및 업데이트",

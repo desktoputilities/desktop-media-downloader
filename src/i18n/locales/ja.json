@@ -34,7 +34,8 @@
         "loginRequired": "{{site}}ではアカウントが必要です。サインイン済みのブラウザプロファイルからCookieをインポートしてください。",
         "fetchBlocked": "サイトがリクエストをブロックしました。もう一度試すか、サインインしてください。",
         "fetchFailed": "このページにダウンロードできるメディアが見つかりませんでした。",
-        "tryAgain": "再試行"
+        "tryAgain": "再試行",
+        "cookiesExpired": "{{site}}のCookieの有効期限が切れています。そのブラウザプロファイルで{{site}}にサインインし、Cookieを再度エクスポートしてインポートし直してください。"
     },
     "downloads": {
         "sectionTitle": "ダウンロードキュー",
@@ -93,7 +94,19 @@
         "copied": "コピー済み",
         "copyCommand": "コマンドをコピー",
         "unavailable": "このビルドでは依存関係チェックは利用できません。",
-        "loadError": "依存関係のステータスを読み込めませんでした。"
+        "loadError": "依存関係のステータスを読み込めませんでした。",
+        "engineVersion": "バージョン {{version}}",
+        "engineUpdatedTag": "更新済み",
+        "engineUpdatesTitle": "ダウンロードエンジン",
+        "engineUpdatesDescription": "Instagram、X、TikTokなどのサイトは頻繁に変わります。新しいエンジンのバージョンで、アプリの更新を待たずに対応できます。",
+        "enginesLastChecked": "最終確認: {{time}}",
+        "enginesNeverChecked": "まだ確認していません",
+        "updateEngines": "エンジンを更新",
+        "enginesUpdating": "更新中…",
+        "enginesUpdated": "{{engines}} に更新しました。",
+        "enginesCurrent": "エンジンは最新です。",
+        "enginesUpdateFailed": "更新できませんでした: {{error}}",
+        "enginesAutoUpdate": "1日に1回エンジンの更新を確認する"
     },
     "info": {
         "appAndUpdates": "アプリと更新",

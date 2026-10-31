@@ -34,7 +34,8 @@
         "loginRequired": "{{site}} 需要账号才能获取。请从已登录该网站的浏览器配置文件导入 Cookie。",
         "fetchBlocked": "网站拦截了请求。请重试或登录。",
         "fetchFailed": "此页面上未找到可下载的媒体。",
-        "tryAgain": "重试"
+        "tryAgain": "重试",
+        "cookiesExpired": "你的 {{site}} Cookie 已过期。请在该浏览器配置文件中登录 {{site}}，重新导出 Cookie 并再次导入。"
     },
     "downloads": {
         "sectionTitle": "下载队列",
@@ -93,7 +94,19 @@
         "copied": "已复制",
         "copyCommand": "复制命令",
         "unavailable": "此版本不支持运行时依赖检查。",
-        "loadError": "无法加载依赖状态。"
+        "loadError": "无法加载依赖状态。",
+        "engineVersion": "版本 {{version}}",
+        "engineUpdatedTag": "已更新",
+        "engineUpdatesTitle": "下载引擎",
+        "engineUpdatesDescription": "Instagram、X、TikTok 等网站经常变化。新版本的引擎可以修复这些问题，无需等待应用更新。",
+        "enginesLastChecked": "上次检查：{{time}}",
+        "enginesNeverChecked": "尚未检查",
+        "updateEngines": "更新引擎",
+        "enginesUpdating": "正在更新…",
+        "enginesUpdated": "已更新：{{engines}}。",
+        "enginesCurrent": "引擎已是最新版本。",
+        "enginesUpdateFailed": "无法更新：{{error}}",
+        "enginesAutoUpdate": "每天检查一次引擎更新"
     },
     "info": {
         "appAndUpdates": "应用和更新",

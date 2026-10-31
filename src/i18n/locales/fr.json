@@ -34,7 +34,8 @@
         "loginRequired": "{{site}} demande un compte pour cela. Importez les cookies d'un profil de navigateur connecté à ce site.",
         "fetchBlocked": "Le site a bloqué la requête. Réessayez ou connectez-vous.",
         "fetchFailed": "Aucun média téléchargeable n'a été trouvé sur cette page.",
-        "tryAgain": "Réessayer"
+        "tryAgain": "Réessayer",
+        "cookiesExpired": "Vos cookies {{site}} ont expiré. Connectez-vous à {{site}} dans ce profil de navigateur, exportez à nouveau ses cookies et réimportez-les."
     },
     "downloads": {
         "sectionTitle": "File de Téléchargement",
@@ -93,7 +94,19 @@
         "copied": "Copié",
         "copyCommand": "Copier la commande",
         "unavailable": "La vérification des dépendances n'est pas disponible dans cette version.",
-        "loadError": "Impossible de charger l'état des dépendances."
+        "loadError": "Impossible de charger l'état des dépendances.",
+        "engineVersion": "Version {{version}}",
+        "engineUpdatedTag": "mis à jour",
+        "engineUpdatesTitle": "Moteurs de téléchargement",
+        "engineUpdatesDescription": "Des sites comme Instagram, X et TikTok changent souvent. Les nouvelles versions des moteurs corrigent cela sans attendre une mise à jour de l'app.",
+        "enginesLastChecked": "Dernière vérification : {{time}}",
+        "enginesNeverChecked": "Pas encore vérifié",
+        "updateEngines": "Mettre à jour les moteurs",
+        "enginesUpdating": "Mise à jour…",
+        "enginesUpdated": "Mis à jour : {{engines}}.",
+        "enginesCurrent": "Les moteurs sont à jour.",
+        "enginesUpdateFailed": "Mise à jour impossible : {{error}}",
+        "enginesAutoUpdate": "Rechercher des mises à jour des moteurs une fois par jour"
     },
     "info": {
         "appAndUpdates": "App et Mises à Jour",

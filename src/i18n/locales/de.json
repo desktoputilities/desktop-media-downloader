@@ -34,7 +34,8 @@
         "loginRequired": "{{site}} erfordert dafür ein Konto. Importiere Cookies aus einem Browserprofil, das dort angemeldet ist.",
         "fetchBlocked": "Die Seite hat die Anfrage blockiert. Versuche es erneut oder melde dich an.",
         "fetchFailed": "Auf dieser Seite wurden keine herunterladbaren Medien gefunden.",
-        "tryAgain": "Erneut versuchen"
+        "tryAgain": "Erneut versuchen",
+        "cookiesExpired": "Deine {{site}}-Cookies sind abgelaufen. Melde dich in diesem Browserprofil bei {{site}} an, exportiere die Cookies erneut und importiere sie wieder."
     },
     "downloads": {
         "sectionTitle": "Download-Warteschlange",
@@ -93,7 +94,19 @@
         "copied": "Kopiert",
         "copyCommand": "Befehl kopieren",
         "unavailable": "Abhängigkeitsprüfung ist in diesem Build nicht verfügbar.",
-        "loadError": "Abhängigkeitsstatus konnte nicht geladen werden."
+        "loadError": "Abhängigkeitsstatus konnte nicht geladen werden.",
+        "engineVersion": "Version {{version}}",
+        "engineUpdatedTag": "aktualisiert",
+        "engineUpdatesTitle": "Download-Engines",
+        "engineUpdatesDescription": "Seiten wie Instagram, X und TikTok ändern sich oft. Neue Engine-Versionen beheben das, ohne auf ein App-Update zu warten.",
+        "enginesLastChecked": "Zuletzt geprüft: {{time}}",
+        "enginesNeverChecked": "Noch nicht geprüft",
+        "updateEngines": "Engines aktualisieren",
+        "enginesUpdating": "Wird aktualisiert…",
+        "enginesUpdated": "Aktualisiert: {{engines}}.",
+        "enginesCurrent": "Die Engines sind aktuell.",
+        "enginesUpdateFailed": "Aktualisierung fehlgeschlagen: {{error}}",
+        "enginesAutoUpdate": "Einmal täglich nach Engine-Updates suchen"
     },
     "info": {
         "appAndUpdates": "App & Updates",

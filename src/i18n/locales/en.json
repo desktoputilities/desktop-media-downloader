@@ -34,7 +34,8 @@
         "loginRequired": "{{site}} needs an account for this. Import cookies from a browser profile signed in to it.",
         "fetchBlocked": "The site blocked the request. Try again, or sign in to it.",
         "fetchFailed": "No downloadable media was found on this page.",
-        "tryAgain": "Try again"
+        "tryAgain": "Try again",
+        "cookiesExpired": "Your {{site}} cookies have expired. Sign in to {{site}} in that browser profile, export its cookies again and re-import them."
     },
     "downloads": {
         "sectionTitle": "Download Queue",
@@ -93,7 +94,19 @@
         "copied": "Copied",
         "copyCommand": "Copy command",
         "unavailable": "Runtime dependency check is unavailable in this build.",
-        "loadError": "Could not load dependency status."
+        "loadError": "Could not load dependency status.",
+        "engineVersion": "Version {{version}}",
+        "engineUpdatedTag": "updated",
+        "engineUpdatesTitle": "Download engines",
+        "engineUpdatesDescription": "Sites like Instagram, X and TikTok change often. New engine versions fix that without waiting for an app update.",
+        "enginesLastChecked": "Last checked {{time}}",
+        "enginesNeverChecked": "Not checked yet",
+        "updateEngines": "Update engines",
+        "enginesUpdating": "Updating…",
+        "enginesUpdated": "Updated {{engines}}.",
+        "enginesCurrent": "The engines are up to date.",
+        "enginesUpdateFailed": "Could not update: {{error}}",
+        "enginesAutoUpdate": "Check for engine updates once a day"
     },
     "info": {
         "appAndUpdates": "App & Updates",

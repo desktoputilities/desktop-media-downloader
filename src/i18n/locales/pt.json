@@ -34,7 +34,8 @@
         "loginRequired": "{{site}} exige uma conta para isso. Importe cookies de um perfil do navegador conectado ao site.",
         "fetchBlocked": "O site bloqueou a solicitação. Tente novamente ou entre na conta.",
         "fetchFailed": "Nenhuma mídia para download foi encontrada nesta página.",
-        "tryAgain": "Tentar novamente"
+        "tryAgain": "Tentar novamente",
+        "cookiesExpired": "Seus cookies de {{site}} expiraram. Entre em {{site}} nesse perfil do navegador, exporte os cookies novamente e importe-os outra vez."
     },
     "downloads": {
         "sectionTitle": "Fila de Downloads",
@@ -93,7 +94,19 @@
         "copied": "Copiado",
         "copyCommand": "Copiar comando",
         "unavailable": "Verificação de dependências não disponível nesta versão.",
-        "loadError": "Não foi possível carregar o status das dependências."
+        "loadError": "Não foi possível carregar o status das dependências.",
+        "engineVersion": "Versão {{version}}",
+        "engineUpdatedTag": "atualizado",
+        "engineUpdatesTitle": "Motores de download",
+        "engineUpdatesDescription": "Sites como Instagram, X e TikTok mudam com frequência. Novas versões dos motores resolvem isso sem esperar uma atualização do app.",
+        "enginesLastChecked": "Última verificação: {{time}}",
+        "enginesNeverChecked": "Ainda não verificado",
+        "updateEngines": "Atualizar motores",
+        "enginesUpdating": "Atualizando…",
+        "enginesUpdated": "Atualizado: {{engines}}.",
+        "enginesCurrent": "Os motores estão atualizados.",
+        "enginesUpdateFailed": "Não foi possível atualizar: {{error}}",
+        "enginesAutoUpdate": "Procurar atualizações dos motores uma vez por dia"
     },
     "info": {
         "appAndUpdates": "App e Atualizações",

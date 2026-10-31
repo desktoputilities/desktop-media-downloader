@@ -34,7 +34,8 @@
         "loginRequired": "{{site}} bunun için hesap istiyor. Siteye giriş yapmış bir tarayıcı profilinden çerezleri içe aktarın.",
         "fetchBlocked": "Site isteği engelledi. Tekrar deneyin veya giriş yapın.",
         "fetchFailed": "Bu sayfada indirilebilir medya bulunamadı.",
-        "tryAgain": "Tekrar dene"
+        "tryAgain": "Tekrar dene",
+        "cookiesExpired": "{{site}} çerezlerinizin süresi doldu. O tarayıcı profilinde {{site}} sitesine giriş yapın, çerezleri yeniden dışa aktarın ve tekrar içe aktarın."
     },
     "downloads": {
         "sectionTitle": "İndirme Kuyruğu",
@@ -93,7 +94,19 @@
         "copied": "Kopyalandı",
         "copyCommand": "Komutu kopyala",
         "unavailable": "Bu derlemede çalışma gereksinimleri kontrolü kullanılamıyor.",
-        "loadError": "Gereksinimler durumu yüklenemedi."
+        "loadError": "Gereksinimler durumu yüklenemedi.",
+        "engineVersion": "Sürüm {{version}}",
+        "engineUpdatedTag": "güncellendi",
+        "engineUpdatesTitle": "İndirme motorları",
+        "engineUpdatesDescription": "Instagram, X ve TikTok gibi siteler sık değişir. Yeni motor sürümleri, uygulama güncellemesini beklemeden bunu düzeltir.",
+        "enginesLastChecked": "Son kontrol: {{time}}",
+        "enginesNeverChecked": "Henüz kontrol edilmedi",
+        "updateEngines": "Motorları güncelle",
+        "enginesUpdating": "Güncelleniyor…",
+        "enginesUpdated": "Güncellendi: {{engines}}.",
+        "enginesCurrent": "Motorlar güncel.",
+        "enginesUpdateFailed": "Güncellenemedi: {{error}}",
+        "enginesAutoUpdate": "Motor güncellemelerini günde bir kez kontrol et"
     },
     "info": {
         "appAndUpdates": "Uygulama ve Güncellemeler",

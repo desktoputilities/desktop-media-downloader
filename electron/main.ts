@@ -40,6 +40,16 @@ import {
   type SniffedMedia,
 } from './media-resolver'
 import { baseDomainOf, parseCookieExport, summarizeCookieSites } from './site-cookies'
+import {
+  compareVersions,
+  ENGINES,
+  engineFileName,
+  findChecksum,
+  isEngineCheckDue,
+  normalizeVersion as normalizeEngineVersion,
+  versionFromEngineFile,
+  type EngineId,
+} from './engine-updates'
 
 // The built directory structure
 process.env.APP_ROOT = path.join(__dirname, '..')
@@ -147,71 +157,230 @@ const getActiveDownloadsPath = async () => {
   return customDownloadPath || getDefaultDownloadsPath();
 };
 
-// Get yt-dlp path - uses bundled or system yt-dlp
-let ytDlpPathCache: string | null = null;
+// ==================== ENGINES ====================
+// yt-dlp and gallery-dl come bundled with the app. Newer versions downloaded
+// by the engine updater live in userData/engines as "<engine>-<version>" files;
+// the newest working copy wins, so an app update with a newer bundle still
+// takes precedence over an older download.
+interface ResolvedEngine {
+  path: string;
+  version: string | null;
+  source: 'updated' | 'bundled' | 'system';
+}
 
-const getYtDlpCandidates = (): string[] => {
-  const exeName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
-  return [
-    path.join(process.resourcesPath, 'bin', exeName),       // Packaged app
-    path.join(process.env.APP_ROOT || '', 'bin', exeName),   // Dev mode
-    'yt-dlp',                                                // System PATH
-  ];
+const resolvedEngines = new Map<EngineId, ResolvedEngine>();
+// When an engine was last found missing; looked up again after a minute.
+const missingEngineCheckedAt = new Map<EngineId, number>();
+
+const getEnginesDir = () => path.join(app.getPath('userData'), 'engines');
+
+const probeEngineVersion = (executable: string): string | null => {
+  try {
+    const probe = spawnSync(executable, ['--version'], { encoding: 'utf-8', windowsHide: true, timeout: 30000 });
+    return probe.status === 0 ? String(probe.stdout || '').trim().split(/\r?\n/)[0] || null : null;
+  } catch {
+    return null;
+  }
 };
 
-const getYtDlpPath = (): string => {
-  if (ytDlpPathCache) return ytDlpPathCache;
+// Updated copies of one engine, newest first.
+const listUpdatedEngines = (engine: EngineId): Array<{ path: string; version: string }> => {
+  try {
+    return fs.readdirSync(getEnginesDir())
+      .map((name) => ({ name, version: versionFromEngineFile(engine, name) }))
+      .filter((entry): entry is { name: string; version: string } => Boolean(entry.version))
+      .sort((a, b) => compareVersions(b.version, a.version))
+      .map((entry) => ({ path: path.join(getEnginesDir(), entry.name), version: entry.version }));
+  } catch {
+    return [];
+  }
+};
 
-  for (const candidate of getYtDlpCandidates()) {
-    try {
-      if (candidate !== 'yt-dlp' && !fs.existsSync(candidate)) {
-        continue;
-      }
+const resolveEngine = (engine: EngineId): ResolvedEngine | null => {
+  const cached = resolvedEngines.get(engine);
+  if (cached) return cached;
+  if (Date.now() - (missingEngineCheckedAt.get(engine) || 0) < 60_000) return null;
 
-      const probe = spawnSync(candidate, ['--version'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-
-      if (probe.status === 0) {
-        ytDlpPathCache = candidate;
-        return candidate;
-      }
-    } catch {
-      // Try next candidate.
+  const exeName = process.platform === 'win32' ? `${engine}.exe` : engine;
+  let bundled: ResolvedEngine | null = null;
+  for (const candidate of [
+    path.join(process.resourcesPath, 'bin', exeName), // Packaged app
+    path.join(process.env.APP_ROOT || '', 'bin', exeName), // Dev mode
+    engine, // System PATH
+  ]) {
+    if (candidate !== engine && !fs.existsSync(candidate)) continue;
+    const version = probeEngineVersion(candidate);
+    if (version) {
+      bundled = { path: candidate, version, source: candidate === engine ? 'system' : 'bundled' };
+      break;
     }
   }
 
-  // Fallback to system PATH even if probe failed (yt-dlp might appear later).
-  return 'yt-dlp';
+  let resolved = bundled;
+  for (const updated of listUpdatedEngines(engine)) {
+    if (bundled && compareVersions(updated.version, bundled.version) <= 0) break;
+    // Use the reported version, not the file name, in case the file was replaced.
+    const version = probeEngineVersion(updated.path);
+    if (version) {
+      resolved = { path: updated.path, version, source: 'updated' };
+      break;
+    }
+  }
+
+  // A missing engine is looked up again later, in case it gets installed.
+  if (resolved) resolvedEngines.set(engine, resolved);
+  else missingEngineCheckedAt.set(engine, Date.now());
+  return resolved;
 };
+
+const getYtDlpPath = (): string => resolveEngine('yt-dlp')?.path || 'yt-dlp';
 
 // gallery-dl reads image posts and carousels (Instagram, X, TikTok photos,
-// Reddit, ...). Same lookup as yt-dlp; null when it is not installed.
-let galleryDlPathCache: string | null | undefined;
+// Reddit, ...). Null when it is not installed.
+const getGalleryDlPath = (): string | null => resolveEngine('gallery-dl')?.path || null;
 
-const getGalleryDlPath = (): string | null => {
-  if (galleryDlPathCache !== undefined) return galleryDlPathCache;
-  const exeName = process.platform === 'win32' ? 'gallery-dl.exe' : 'gallery-dl';
-  const candidates = [
-    path.join(process.resourcesPath, 'bin', exeName),
-    path.join(process.env.APP_ROOT || '', 'bin', exeName),
-    'gallery-dl',
-  ];
-  for (const candidate of candidates) {
-    try {
-      if (candidate !== 'gallery-dl' && !fs.existsSync(candidate)) continue;
-      const probe = spawnSync(candidate, ['--version'], { stdio: 'ignore', windowsHide: true, timeout: 30000 });
-      if (probe.status === 0) {
-        galleryDlPathCache = candidate;
-        return candidate;
-      }
-    } catch {
-      // Try next candidate.
-    }
+// ==================== ENGINE UPDATES ====================
+// Sites change often and break the engines; new engine releases fix that
+// without an app release. Downloads are checked against the release's
+// SHA-256 list and must report the expected version before they are used.
+interface EngineUpdateState {
+  autoUpdate: boolean;
+  lastCheckedAt?: number;
+}
+
+type EngineUpdateResult =
+  | { engine: EngineId; status: 'updated'; from: string | null; to: string }
+  | { engine: EngineId; status: 'current'; version: string | null }
+  | { engine: EngineId; status: 'unavailable' }
+  | { engine: EngineId; status: 'error'; error: string };
+
+const getEngineUpdateStateFile = () => path.join(app.getPath('userData'), 'engine-updates.json');
+
+const readEngineUpdateState = (): EngineUpdateState => {
+  try {
+    const saved = JSON.parse(fs.readFileSync(getEngineUpdateStateFile(), 'utf8'));
+    return { autoUpdate: saved?.autoUpdate !== false, lastCheckedAt: Number(saved?.lastCheckedAt) || undefined };
+  } catch {
+    return { autoUpdate: true };
   }
-  galleryDlPathCache = null;
-  return null;
+};
+
+const writeEngineUpdateState = (state: EngineUpdateState) => {
+  try {
+    fs.writeFileSync(getEngineUpdateStateFile(), JSON.stringify(state, null, 2));
+  } catch (error) {
+    console.warn('Could not save engine update state:', error);
+  }
+};
+
+const fetchEngineRelease = async (url: string): Promise<Response> => {
+  const response = await net.fetch(url, {
+    headers: { Accept: 'application/json', 'User-Agent': 'DesktopMediaDownloader' },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).host}`);
+  return response;
+};
+
+const updateEngine = async (engine: EngineId): Promise<EngineUpdateResult> => {
+  const spec = ENGINES[engine];
+  const assetName = spec.assetName(process.platform, process.arch);
+  if (!assetName) return { engine, status: 'unavailable' };
+
+  try {
+    const release = await (await fetchEngineRelease(spec.latestReleaseUrl)).json() as {
+      tag_name?: string;
+      assets?: Array<{ name?: string; browser_download_url?: string }>;
+    };
+    const latest = normalizeEngineVersion(release.tag_name);
+    const current = resolveEngine(engine)?.version || null;
+    if (!latest) throw new Error('The release has no version');
+    if (current && compareVersions(latest, current) <= 0) return { engine, status: 'current', version: current };
+
+    const assetUrl = release.assets?.find((asset) => asset.name === assetName)?.browser_download_url;
+    const sumsUrl = release.assets?.find((asset) => asset.name === spec.checksumAsset)?.browser_download_url;
+    if (!assetUrl || !sumsUrl) throw new Error(`The release has no ${assetName} or checksum list`);
+
+    const expectedHash = findChecksum(await (await fetchEngineRelease(sumsUrl)).text(), assetName);
+    if (!expectedHash) throw new Error(`No checksum for ${assetName}`);
+    const data = Buffer.from(await (await fetchEngineRelease(assetUrl)).arrayBuffer());
+    const actualHash = crypto.createHash('sha256').update(data).digest('hex');
+    if (actualHash !== expectedHash) throw new Error('The download does not match its checksum');
+
+    const enginesDir = getEnginesDir();
+    await fsPromises.mkdir(enginesDir, { recursive: true });
+    const target = path.join(enginesDir, engineFileName(engine, latest, process.platform));
+    const temp = `${target}.download`;
+    await fsPromises.writeFile(temp, data, { mode: 0o755 });
+    const reported = probeEngineVersion(temp);
+    if (!reported || compareVersions(reported, latest) !== 0) {
+      await fsPromises.rm(temp, { force: true });
+      throw new Error(`The new ${engine} did not start`);
+    }
+    await fsPromises.rm(target, { force: true });
+    await fsPromises.rename(temp, target);
+
+    resolvedEngines.delete(engine);
+    missingEngineCheckedAt.delete(engine);
+    const inUse = resolveEngine(engine)?.path;
+    // Older downloads are no longer needed; one still running stays until next time.
+    for (const old of listUpdatedEngines(engine)) {
+      if (old.path !== inUse) await fsPromises.rm(old.path, { force: true }).catch(() => undefined);
+    }
+    return { engine, status: 'updated', from: current, to: latest };
+  } catch (error: any) {
+    return { engine, status: 'error', error: error?.message || String(error) };
+  }
+};
+
+let engineUpdateRun: Promise<EngineUpdateResult[]> | null = null;
+
+const updateEngines = (): Promise<EngineUpdateResult[]> => {
+  engineUpdateRun ??= (async () => {
+    try {
+      const results: EngineUpdateResult[] = [];
+      for (const engine of Object.keys(ENGINES) as EngineId[]) results.push(await updateEngine(engine));
+      if (results.some((result) => result.status !== 'error')) {
+        writeEngineUpdateState({ ...readEngineUpdateState(), lastCheckedAt: Date.now() });
+      }
+      return results;
+    } finally {
+      engineUpdateRun = null;
+    }
+  })();
+  return engineUpdateRun;
+};
+
+const getEngineStatus = () => {
+  const state = readEngineUpdateState();
+  return {
+    autoUpdate: state.autoUpdate,
+    lastCheckedAt: state.lastCheckedAt ?? null,
+    updating: Boolean(engineUpdateRun),
+    engines: (Object.keys(ENGINES) as EngineId[]).map((engine) => {
+      const resolved = resolveEngine(engine);
+      return {
+        id: engine,
+        version: resolved?.version ?? null,
+        source: resolved?.source ?? null,
+        updatable: Boolean(ENGINES[engine].assetName(process.platform, process.arch)),
+      };
+    }),
+  };
+};
+
+// Quiet daily check, a little after start so it does not slow the first window.
+const scheduleEngineUpdateChecks = () => {
+  const runIfDue = () => {
+    const state = readEngineUpdateState();
+    if (!state.autoUpdate || !isEngineCheckDue(state.lastCheckedAt)) return;
+    void updateEngines().then((results) => {
+      const updated = results.filter((result) => result.status === 'updated');
+      if (updated.length) console.log('Engines updated:', updated.map((result) => `${result.engine} ${'to' in result ? result.to : ''}`).join(', '));
+      win?.webContents.send('engines-updated', getEngineStatus());
+    });
+  };
+  setTimeout(runIfDue, 15_000);
+  setInterval(runIfDue, 60 * 60 * 1000);
 };
 
 const spawnGalleryDl = (args: string[]) => spawn(getGalleryDlPath() || 'gallery-dl', [
@@ -286,6 +455,42 @@ const cookieArgsFor = (engine: 'yt-dlp' | 'gallery-dl', targetUrl: string, brows
     return [engine === 'yt-dlp' ? '--cookies' : '-C', getSiteCookiesFile()];
   }
   return browser ? ['--cookies-from-browser', browser] : [];
+};
+
+// Chrome's app-bound encryption makes yt-dlp fail every request with "Failed to
+// decrypt with DPAPI" instead of just going without cookies. Read the browser's
+// cookies once (no URL, so nothing is fetched) and drop a browser that can't be read.
+const COOKIE_BROWSER_PROBE_TTL_MS = 10 * 60 * 1000;
+const cookieBrowserProbes = new Map<string, { checkedAt: number; result: Promise<boolean> }>();
+
+const probeCookieBrowser = (browser: string): Promise<boolean> => new Promise((resolve) => {
+  const outFile = path.join(os.tmpdir(), `dmd-cookie-probe-${crypto.randomUUID()}.txt`);
+  const proc = spawnYtDlp(getYtDlpPath(), ['--cookies-from-browser', browser, '--cookies', outFile]);
+  let stderr = '';
+  const finish = (usable: boolean) => {
+    clearTimeout(timer);
+    fs.rm(outFile, { force: true }, () => resolve(usable));
+  };
+  // A slow read isn't proof of a broken browser; keep it rather than lose a login.
+  const timer = setTimeout(() => { proc.kill(); finish(true); }, 30000);
+  proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
+  proc.on('error', () => finish(true));
+  proc.on('close', (code: number | null) => {
+    if (code !== 0) {
+      console.warn(`[Cookies] Skipping ${browser} cookies, yt-dlp could not read them:`, stderr.trim().split('\n').pop());
+    }
+    finish(code === 0);
+  });
+});
+
+const usableCookieBrowser = async (browser?: string): Promise<string | undefined> => {
+  if (!browser) return undefined;
+  let probe = cookieBrowserProbes.get(browser);
+  if (!probe || Date.now() - probe.checkedAt > COOKIE_BROWSER_PROBE_TTL_MS) {
+    probe = { checkedAt: Date.now(), result: probeCookieBrowser(browser) };
+    cookieBrowserProbes.set(browser, probe);
+  }
+  return (await probe.result) ? browser : undefined;
 };
 
 interface GalleryProbe {
@@ -425,28 +630,14 @@ const isFfmpegAvailable = (): boolean => {
   return ffmpegAvailable;
 };
 
-const isYtDlpAvailable = (): boolean => {
-  // Resolved path is already probed during getYtDlpPath(); if cache is set it works.
-  const resolved = getYtDlpPath();
-  if (ytDlpPathCache) return true;
-
-  // Cache miss means none of the candidates passed the probe.
-  try {
-    const probe = spawnSync(resolved, ['--version'], {
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    return probe.status === 0;
-  } catch {
-    return false;
-  }
-};
+const isYtDlpAvailable = (): boolean => Boolean(resolveEngine('yt-dlp'));
 
 const getInstallCommandMap = () => {
   if (process.platform === 'win32') {
     return {
       ytDlp: 'winget install yt-dlp.yt-dlp',
       ffmpeg: 'winget install Gyan.FFmpeg',
+      galleryDl: 'pip install -U gallery-dl',
     };
   }
 
@@ -454,12 +645,14 @@ const getInstallCommandMap = () => {
     return {
       ytDlp: 'brew install yt-dlp',
       ffmpeg: 'brew install ffmpeg',
+      galleryDl: 'brew install gallery-dl',
     };
   }
 
   return {
     ytDlp: 'Debian/Ubuntu: sudo apt install -y yt-dlp\nFedora: sudo dnf install -y yt-dlp\nArch: sudo pacman -S --needed yt-dlp',
     ffmpeg: 'Debian/Ubuntu: sudo apt install -y ffmpeg\nFedora: sudo dnf install -y ffmpeg\nArch: sudo pacman -S --needed ffmpeg',
+    galleryDl: 'pip install -U gallery-dl',
   };
 };
 
@@ -2179,6 +2372,7 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Invalid media request' };
   }
+  cookiesBrowser = await usableCookieBrowser(cookiesBrowser);
 
   return new Promise(async (resolve) => {
     // Initial standard yt-dlp call. With resolveSizes, yt-dlp also runs the
@@ -2636,7 +2830,9 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
     }
 
     const errorKind = loginNeeded ? 'login' : errorKinds.find((kind) => kind !== 'other') || 'other';
-    resolve({ ...result, errorKind, needsLogin: errorKind === 'login', site: siteDomainOf(url) });
+    // Imported cookies were sent and the site still wants a login: they have expired.
+    const cookiesExpired = errorKind === 'login' && hasSiteLogin(url);
+    resolve({ ...result, errorKind, needsLogin: errorKind === 'login', cookiesExpired, site: siteDomainOf(url) });
   });
 });
 
@@ -2905,7 +3101,8 @@ const searchPosts = async (searchUrl: string, query: string, platform: string, c
   const { results, error } = await runGalleryDlSearch(searchUrl, count, cookiesBrowser);
   if (results.length > 0) return toSearchResponse(results, query, platform);
   const errorKind = classifyEngineError(error);
-  return { success: false, error: error || 'No results', errorKind, needsLogin: errorKind === 'login', site: siteDomainOf(searchUrl), searchUrl };
+  const cookiesExpired = errorKind === 'login' && hasSiteLogin(searchUrl);
+  return { success: false, error: error || 'No results', errorKind, needsLogin: errorKind === 'login', cookiesExpired, site: siteDomainOf(searchUrl), searchUrl };
 };
 
 // Finds a site's search URL template from its OpenSearch description.
@@ -2979,7 +3176,7 @@ const searchSite = async (rawSite: string, query: string, count: number, cookies
 
 ipcMain.handle('search-videos', async (_event, query: string, platform: string = 'youtube', count: number = 20, cookiesBrowser?: string) => {
   try {
-    cookiesBrowser = normalizeCookieBrowser(cookiesBrowser);
+    cookiesBrowser = await usableCookieBrowser(normalizeCookieBrowser(cookiesBrowser));
   } catch {
     cookiesBrowser = undefined;
   }
@@ -3813,6 +4010,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
       error: error instanceof Error ? error.message : 'Invalid download request',
     };
   }
+  opts.cookiesFromBrowser = await usableCookieBrowser(opts.cookiesFromBrowser);
 
   if (!['video', 'audio', 'photo', 'gallery'].includes(opts.format)) {
     return { status: 'error', error: 'Unsupported download format' };
@@ -5039,9 +5237,29 @@ ipcMain.handle('get-runtime-dependencies-status', async () => {
           installCommand: commands.ffmpeg,
           helpUrl: 'https://ffmpeg.org/download.html',
         },
+        {
+          id: 'gallery-dl',
+          name: 'gallery-dl',
+          required: false,
+          installed: Boolean(getGalleryDlPath()),
+          installCommand: commands.galleryDl,
+          helpUrl: 'https://github.com/mikf/gallery-dl#installation',
+        },
       ],
     },
   };
+});
+
+ipcMain.handle('get-engine-status', async () => getEngineStatus());
+
+ipcMain.handle('update-engines', async () => {
+  const results = await updateEngines();
+  return { results, status: getEngineStatus() };
+});
+
+ipcMain.handle('set-engine-auto-update', async (_event, enabled: boolean) => {
+  writeEngineUpdateState({ ...readEngineUpdateState(), autoUpdate: Boolean(enabled) });
+  return getEngineStatus();
 });
 
 ipcMain.handle('open-external-url', async (_event, url: string) => {
@@ -5218,6 +5436,7 @@ app.whenReady().then(async () => {
   await ensureDownloadLocationLoaded();
   createWindow();
   setInterval(updateTaskbarProgress, 1000);
+  scheduleEngineUpdateChecks();
 
   nativeTheme.on('updated', () => {
     const applicationIcon = getApplicationIcon();

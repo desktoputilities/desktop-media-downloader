@@ -34,7 +34,8 @@
         "loginRequired": "{{site}} requiere una cuenta para esto. Importa cookies de un perfil del navegador con la sesión iniciada.",
         "fetchBlocked": "El sitio bloqueó la solicitud. Vuelve a intentarlo o inicia sesión.",
         "fetchFailed": "No se encontró contenido descargable en esta página.",
-        "tryAgain": "Reintentar"
+        "tryAgain": "Reintentar",
+        "cookiesExpired": "Tus cookies de {{site}} han caducado. Inicia sesión en {{site}} en ese perfil del navegador, exporta de nuevo sus cookies e impórtalas otra vez."
     },
     "downloads": {
         "sectionTitle": "Cola de Descargas",
@@ -93,7 +94,19 @@
         "copied": "Copiado",
         "copyCommand": "Copiar comando",
         "unavailable": "La verificación de dependencias no está disponible en esta compilación.",
-        "loadError": "No se pudo cargar el estado de dependencias."
+        "loadError": "No se pudo cargar el estado de dependencias.",
+        "engineVersion": "Versión {{version}}",
+        "engineUpdatedTag": "actualizado",
+        "engineUpdatesTitle": "Motores de descarga",
+        "engineUpdatesDescription": "Sitios como Instagram, X y TikTok cambian a menudo. Las nuevas versiones de los motores lo solucionan sin esperar a una actualización de la app.",
+        "enginesLastChecked": "Última comprobación: {{time}}",
+        "enginesNeverChecked": "Aún no comprobado",
+        "updateEngines": "Actualizar motores",
+        "enginesUpdating": "Actualizando…",
+        "enginesUpdated": "Actualizado: {{engines}}.",
+        "enginesCurrent": "Los motores están al día.",
+        "enginesUpdateFailed": "No se pudo actualizar: {{error}}",
+        "enginesAutoUpdate": "Buscar actualizaciones de motores una vez al día"
     },
     "info": {
         "appAndUpdates": "App y Actualizaciones",

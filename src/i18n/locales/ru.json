@@ -34,7 +34,8 @@
         "loginRequired": "Для этого {{site}} требует аккаунт. Импортируйте cookie из профиля браузера, где выполнен вход.",
         "fetchBlocked": "Сайт заблокировал запрос. Повторите попытку или войдите.",
         "fetchFailed": "На этой странице не найдено медиафайлов для загрузки.",
-        "tryAgain": "Повторить"
+        "tryAgain": "Повторить",
+        "cookiesExpired": "Срок действия cookie {{site}} истёк. Войдите на {{site}} в этом профиле браузера, снова экспортируйте cookie и импортируйте их заново."
     },
     "downloads": {
         "sectionTitle": "Очередь загрузок",
@@ -93,7 +94,19 @@
         "copied": "Скопировано",
         "copyCommand": "Копировать команду",
         "unavailable": "Проверка зависимостей недоступна в этой сборке.",
-        "loadError": "Не удалось загрузить статус зависимостей."
+        "loadError": "Не удалось загрузить статус зависимостей.",
+        "engineVersion": "Версия {{version}}",
+        "engineUpdatedTag": "обновлено",
+        "engineUpdatesTitle": "Движки загрузки",
+        "engineUpdatesDescription": "Такие сайты, как Instagram, X и TikTok, часто меняются. Новые версии движков исправляют это без ожидания обновления приложения.",
+        "enginesLastChecked": "Последняя проверка: {{time}}",
+        "enginesNeverChecked": "Ещё не проверялось",
+        "updateEngines": "Обновить движки",
+        "enginesUpdating": "Обновление…",
+        "enginesUpdated": "Обновлено: {{engines}}.",
+        "enginesCurrent": "Движки обновлены до последней версии.",
+        "enginesUpdateFailed": "Не удалось обновить: {{error}}",
+        "enginesAutoUpdate": "Проверять обновления движков раз в день"
     },
     "info": {
         "appAndUpdates": "Приложение и обновления",

@@ -170,7 +170,7 @@ interface DownloadContextType {
     removeFromHistory: (id: string) => void;
     updateSettings: (settings: Partial<DownloadSettings>) => void;
     // On failure, errorKind says why ('login', 'blocked', ...) and site names the site to sign in to.
-    getVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string; errorKind?: string; needsLogin?: boolean; site?: string }>;
+    getVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string; errorKind?: string; needsLogin?: boolean; cookiesExpired?: boolean; site?: string }>;
     getFastVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>;
     // New methods
     searchVideos: (query: string, platform: string, count?: number) => Promise<any>;

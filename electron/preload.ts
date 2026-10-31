@@ -58,6 +58,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Setup wizard helpers
   getRuntimeDependenciesStatus: () => ipcRenderer.invoke('get-runtime-dependencies-status'),
+  getEngineStatus: () => ipcRenderer.invoke('get-engine-status'),
+  updateEngines: () => ipcRenderer.invoke('update-engines'),
+  setEngineAutoUpdate: (enabled: boolean) => ipcRenderer.invoke('set-engine-auto-update', enabled),
+  onEnginesUpdated: (listener: DownloadEventListener<unknown>) => subscribe('engines-updated', listener),
   openExternalUrl: (url: string) => ipcRenderer.invoke('open-external-url', url),
 
   // Notification settings
