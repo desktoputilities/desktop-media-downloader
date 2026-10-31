@@ -41,6 +41,8 @@ const formatUploadDate = (dateStr: string, locale: string): string => {
 // yt-dlp reports extractor keys such as "Youtube" or "youtube:tab".
 const KNOWN_SOURCES: Record<string, string> = {
     youtube: 'YouTube', vimeo: 'Vimeo', tiktok: 'TikTok', instagram: 'Instagram', twitter: 'X', x: 'X',
+    bluesky: 'Bluesky', reddit: 'Reddit', pinterest: 'Pinterest', imgur: 'Imgur', tumblr: 'Tumblr', flickr: 'Flickr',
+    soundcloud: 'SoundCloud', wikimedia: 'Wikimedia', deviantart: 'DeviantArt', artstation: 'ArtStation', pixiv: 'pixiv', threads: 'Threads',
 };
 const formatSource = (extractor?: string): string => {
     if (!extractor) return 'Video';

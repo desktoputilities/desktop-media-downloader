@@ -30,7 +30,13 @@
         "queuedCount": "Queued: {{count}}",
         "seeAll": "See all",
         "dropHint": "Paste a link with Ctrl+V or drop it anywhere in the window",
-        "dropToStart": "Drop the link to start"
+        "dropToStart": "Drop the link to start",
+        "loginRequired": "Sign in to {{site}} to get this media.",
+        "fetchBlocked": "The site blocked the request. Try again, or sign in to it.",
+        "fetchFailed": "No downloadable media was found on this page.",
+        "signInHere": "Sign in",
+        "useBrowserCookies": "Use browser cookies",
+        "tryAgain": "Try again"
     },
     "downloads": {
         "sectionTitle": "Download Queue",
@@ -71,7 +77,8 @@
         "openSource": "Open source video in browser",
         "removeFromHistory": "Remove from history",
         "video": "Video",
-        "photo": "Photo"
+        "photo": "Photo",
+        "fileCount": "{{count}} files"
     },
     "system": {
         "badge": "System Check",
@@ -200,7 +207,11 @@
         "parallelDownloads": "Parallel downloads",
         "parallelDownloadsDesc": "How many downloads run at once. The rest wait in the queue.",
         "advancedSection": "Advanced",
-        "shortcutPaste": "Paste a link (any screen)"
+        "shortcutPaste": "Paste a link (any screen)",
+        "siteSignIn": "Sign in to sites",
+        "siteSignInDesc": "For posts that need an account, without sharing your browser's cookies. The sign-in stays on this computer.",
+        "signIn": "Sign in",
+        "signOut": "Sign out"
     },
     "setupWizard": {
         "languageStep": "Choose Language",
@@ -283,12 +294,15 @@
         "alreadyDownloaded": "Already downloaded: {{details}}",
         "downloadAgain": "Download again",
         "on": "On",
-        "off": "Off"
+        "off": "Off",
+        "image": "Image",
+        "itemsOf": "{{count}} of {{total}}",
+        "selectedOf": "{{count}} of {{total}} selected",
+        "selectAll": "Select all",
+        "selectNone": "Select none"
     },
     "searchModal": {
-        "title": "Search YouTube",
-        "directUrlHint": "For TikTok/Instagram, paste direct URLs on home page",
-        "placeholder": "Search YouTube videos...",
+        "directUrlHint": "TikTok has no keyword search; paste a TikTok link on Home instead.",
         "searchBtn": "Search",
         "searching": "Searching...",
         "noResults": "No results found.",
@@ -301,7 +315,13 @@
         "views": "views",
         "downloadSingle": "Download",
         "downloadSelected": "Download Videos",
-        "downloadAudioBtn": "Download Audio"
+        "downloadAudioBtn": "Download Audio",
+        "hashtagHint": "Searches a hashtag. Needs you to be signed in.",
+        "siteSearchHint": "Uses this site's own search. Works on some sites.",
+        "needsSignIn": "Needs sign-in",
+        "openPost": "Choose media",
+        "titleFor": "Search {{site}}",
+        "placeholderFor": "Search {{site}}..."
     },
     "playlistModal": {
         "title": "Playlist Download",

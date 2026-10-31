@@ -30,7 +30,13 @@
         "queuedCount": "대기 중: {{count}}",
         "seeAll": "모두 보기",
         "dropHint": "Ctrl+V로 링크를 붙여넣거나 창 아무 곳에나 끌어다 놓으세요",
-        "dropToStart": "링크를 놓아 시작"
+        "dropToStart": "링크를 놓아 시작",
+        "loginRequired": "이 미디어를 받으려면 {{site}}에 로그인하세요.",
+        "fetchBlocked": "사이트가 요청을 차단했습니다. 다시 시도하거나 로그인하세요.",
+        "fetchFailed": "이 페이지에서 다운로드할 수 있는 미디어를 찾지 못했습니다.",
+        "signInHere": "로그인",
+        "useBrowserCookies": "브라우저 쿠키 사용",
+        "tryAgain": "다시 시도"
     },
     "downloads": {
         "sectionTitle": "다운로드 대기열",
@@ -71,7 +77,8 @@
         "openSource": "원본 동영상을 브라우저에서 열기",
         "removeFromHistory": "기록에서 제거",
         "video": "비디오",
-        "photo": "사진"
+        "photo": "사진",
+        "fileCount": "파일 {{count}}개"
     },
     "system": {
         "badge": "시스템 점검",
@@ -170,7 +177,11 @@
         "parallelDownloads": "동시 다운로드",
         "parallelDownloadsDesc": "한 번에 실행할 다운로드 수입니다. 나머지는 대기열에서 기다립니다.",
         "advancedSection": "고급",
-        "shortcutPaste": "링크 붙여넣기 (모든 화면)"
+        "shortcutPaste": "링크 붙여넣기 (모든 화면)",
+        "siteSignIn": "사이트 로그인",
+        "siteSignInDesc": "계정이 필요한 게시물용이며 브라우저 쿠키를 공유하지 않습니다. 로그인 정보는 이 컴퓨터에만 저장됩니다.",
+        "signIn": "로그인",
+        "signOut": "로그아웃"
     },
     "setupWizard": {
         "languageStep": "언어 선택",
@@ -253,12 +264,15 @@
         "alreadyDownloaded": "이미 다운로드함: {{details}}",
         "downloadAgain": "다시 다운로드",
         "on": "켬",
-        "off": "끔"
+        "off": "끔",
+        "image": "이미지",
+        "itemsOf": "{{total}}개 중 {{count}}개",
+        "selectedOf": "{{total}}개 중 {{count}}개 선택됨",
+        "selectAll": "모두 선택",
+        "selectNone": "선택 해제"
     },
     "searchModal": {
-        "title": "YouTube 검색",
-        "directUrlHint": "TikTok/Instagram은 홈에서 직접 URL을 붙여넣으세요",
-        "placeholder": "YouTube 비디오 검색...",
+        "directUrlHint": "TikTok은 키워드 검색을 지원하지 않습니다. 홈에 TikTok 링크를 붙여넣으세요.",
         "searchBtn": "검색",
         "searching": "검색 중...",
         "noResults": "결과를 찾을 수 없습니다.",
@@ -271,7 +285,13 @@
         "views": "조회수",
         "downloadSingle": "다운로드",
         "downloadSelected": "비디오 다운로드",
-        "downloadAudioBtn": "오디오 다운로드"
+        "downloadAudioBtn": "오디오 다운로드",
+        "hashtagHint": "해시태그를 검색합니다. 로그인이 필요합니다.",
+        "siteSearchHint": "이 사이트의 자체 검색을 사용합니다. 일부 사이트에서 작동합니다.",
+        "needsSignIn": "로그인 필요",
+        "openPost": "미디어 선택",
+        "titleFor": "{{site}} 검색",
+        "placeholderFor": "{{site}} 검색..."
     },
     "playlistModal": {
         "title": "재생목록 다운로드",

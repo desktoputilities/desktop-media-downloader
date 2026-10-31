@@ -13,8 +13,10 @@ export interface DownloadItemData {
     status: 'queued' | 'pending' | 'downloading' | 'completed' | 'error' | 'paused';
     speed?: string;
     eta?: string;
-    format?: 'video' | 'audio' | 'photo';
+    format?: 'video' | 'audio' | 'photo' | 'gallery';
     quality?: string;
+    galleryIndices?: number[];
+    directUrls?: string[];
     outputDir?: string;
     enableTurboDownload?: boolean;
     adaptiveTurboDownload?: boolean;
@@ -22,6 +24,8 @@ export interface DownloadItemData {
     filePath?: string;
     fileSize?: number;
     fileExt?: string;
+    fileCount?: number;
+    totalBytes?: number;
     error?: string;
 }
 
@@ -55,9 +59,14 @@ const getSourceLabel = (url: string) => {
 // Before completion only the request is known, so audio shows "Audio" rather than
 // a container it may not end up in. After completion, show the real extension.
 const getFormatBadge = (item: DownloadItemData): string => {
+    if (item.status === 'completed' && item.fileCount && item.fileCount > 1) return `${item.fileCount} files`;
     if (item.status === 'completed' && item.fileExt) return item.fileExt.toUpperCase();
     if (item.format === 'audio') return 'Audio';
     if (item.format === 'photo') return 'IMG';
+    if (item.format === 'gallery') {
+        const count = item.galleryIndices?.length || item.directUrls?.length || 0;
+        return count > 1 ? `${count} items` : 'Media';
+    }
     return item.quality && /^\d+$/.test(item.quality) ? `${item.quality}p` : 'Best';
 };
 
@@ -84,7 +93,7 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
     const isComplete = item.status === 'completed';
     const isError = item.status === 'error';
     const isPreparing = item.status === 'pending' && item.progress <= 0 && !item.eta;
-    const finalSize = isComplete ? formatFileSize(item.fileSize, true) : undefined;
+    const finalSize = isComplete ? formatFileSize(item.totalBytes || item.fileSize, true) : undefined;
     const isRetrying = isActive && Boolean(item.eta && /retrying/i.test(item.eta));
     const isFinalizing = isActive && Boolean(item.eta && /finalizing/i.test(item.eta));
     const troubleshootingLink = useMemo(() => getTroubleshootingLink(item.error), [item.error]);
@@ -161,7 +170,7 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                         <div className="w-full h-full flex items-center justify-center">
                             {item.format === 'audio' ? (
                                 <Music className="w-8 h-8 text-foreground/20" />
-                            ) : item.format === 'photo' ? (
+                            ) : item.format === 'photo' || item.format === 'gallery' ? (
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
                                     width="32"
@@ -190,7 +199,7 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                             'absolute bottom-1 right-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase backdrop-blur-md border border-foreground/10',
                             item.format === 'audio'
                                 ? 'bg-accent/20 text-foreground'
-                                : item.format === 'photo'
+                                : item.format === 'photo' || item.format === 'gallery'
                                     ? 'bg-warning/25 text-foreground'
                                     : 'bg-primary/15 text-foreground'
                         )}

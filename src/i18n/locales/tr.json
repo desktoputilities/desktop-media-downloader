@@ -30,7 +30,13 @@
         "queuedCount": "Sırada: {{count}}",
         "seeAll": "Tümünü gör",
         "dropHint": "Ctrl+V ile bir bağlantı yapıştırın veya pencerenin herhangi bir yerine bırakın",
-        "dropToStart": "Başlamak için bağlantıyı bırakın"
+        "dropToStart": "Başlamak için bağlantıyı bırakın",
+        "loginRequired": "Bu medyayı almak için {{site}} hesabına giriş yapın.",
+        "fetchBlocked": "Site isteği engelledi. Tekrar deneyin veya giriş yapın.",
+        "fetchFailed": "Bu sayfada indirilebilir medya bulunamadı.",
+        "signInHere": "Giriş yap",
+        "useBrowserCookies": "Tarayıcı çerezlerini kullan",
+        "tryAgain": "Tekrar dene"
     },
     "downloads": {
         "sectionTitle": "İndirme Kuyruğu",
@@ -71,7 +77,8 @@
         "openSource": "Kaynak videoyu tarayıcıda aç",
         "removeFromHistory": "Geçmişten kaldır",
         "video": "Video",
-        "photo": "Fotoğraf"
+        "photo": "Fotoğraf",
+        "fileCount": "{{count}} dosya"
     },
     "system": {
         "badge": "Sistem Kontrolü",
@@ -200,7 +207,11 @@
         "parallelDownloads": "Paralel indirmeler",
         "parallelDownloadsDesc": "Aynı anda kaç indirme çalışır. Diğerleri sırada bekler.",
         "advancedSection": "Gelişmiş",
-        "shortcutPaste": "Bağlantı yapıştır (her ekranda)"
+        "shortcutPaste": "Bağlantı yapıştır (her ekranda)",
+        "siteSignIn": "Sitelere giriş yap",
+        "siteSignInDesc": "Hesap gerektiren gönderiler için, tarayıcı çerezlerinizi paylaşmadan. Giriş bu bilgisayarda kalır.",
+        "signIn": "Giriş yap",
+        "signOut": "Çıkış yap"
     },
     "setupWizard": {
         "firstRunSetup": "İlk Kurulum",
@@ -283,12 +294,15 @@
         "alreadyDownloaded": "Daha önce indirildi: {{details}}",
         "downloadAgain": "Yeniden indir",
         "on": "Açık",
-        "off": "Kapalı"
+        "off": "Kapalı",
+        "image": "Görsel",
+        "itemsOf": "{{total}} içinden {{count}}",
+        "selectedOf": "{{total}} içinden {{count}} seçildi",
+        "selectAll": "Tümünü seç",
+        "selectNone": "Seçimi kaldır"
     },
     "searchModal": {
-        "title": "YouTube Ara",
-        "directUrlHint": "TikTok/Instagram için doğrudan URL yapıştırın",
-        "placeholder": "YouTube ara...",
+        "directUrlHint": "TikTok'ta anahtar kelime araması yok; bunun yerine Ana sayfaya bir TikTok bağlantısı yapıştırın.",
         "searchBtn": "Ara",
         "searching": "Aranıyor...",
         "noResults": "Sonuç bulunamadı.",
@@ -301,7 +315,13 @@
         "views": "görüntüleme",
         "downloadSingle": "İndir",
         "downloadSelected": "Videoları İndir",
-        "downloadAudioBtn": "Sesleri İndir"
+        "downloadAudioBtn": "Sesleri İndir",
+        "hashtagHint": "Bir hashtag arar. Giriş yapmanız gerekir.",
+        "siteSearchHint": "Bu sitenin kendi aramasını kullanır. Bazı sitelerde çalışır.",
+        "needsSignIn": "Giriş gerekir",
+        "openPost": "Medya seç",
+        "titleFor": "{{site}} içinde ara",
+        "placeholderFor": "{{site}} içinde ara..."
     },
     "playlistModal": {
         "title": "Oynatma Listesi",

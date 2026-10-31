@@ -10,6 +10,11 @@ import {
     ListVideo,
     Zap,
     ArrowRight,
+    Lock,
+    LogIn,
+    Loader2,
+    AlertTriangle,
+    RotateCw,
 } from 'lucide-react';
 import DownloadCard from '../components/DownloadCard';
 import FormatPanel, { type FormatPanelHandle, type FormatSelection } from '../components/FormatSelector';
@@ -81,6 +86,10 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
     const [infoError, setInfoError] = useState<string | undefined>();
     const [isPlaylistUrl, setIsPlaylistUrl] = useState(false);
     const [clipboardUrl, setClipboardUrl] = useState<string | null>(null);
+    // Why the full fetch failed, shown under the preview; 'login' offers sign-in.
+    const [fetchProblem, setFetchProblem] = useState<{ kind: string; site?: string; message?: string } | null>(null);
+    const [isSigningIn, setIsSigningIn] = useState(false);
+    const [reloadKey, setReloadKey] = useState(0);
     const panelRef = useRef<FormatPanelHandle>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -162,6 +171,7 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
         let hasQuickPreview = true;
         setVideoInfo(createImmediateVideoPreview(url));
         setInfoError(undefined);
+        setFetchProblem(null);
         setIsLoadingInfo(false);
         setIsEnrichingInfo(true);
 
@@ -186,7 +196,10 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
                     completeInfoReceived = true;
                     setVideoInfo(result.data);
                     setInfoError(undefined);
-                } else if (!hasQuickPreview) {
+                    return;
+                }
+                setFetchProblem({ kind: result.errorKind || 'other', site: result.site, message: result.error });
+                if (!hasQuickPreview) {
                     setInfoError(result.error || 'Could not fetch video info');
                     setVideoInfo(null);
                 }
@@ -208,7 +221,19 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [url, getFastVideoInfo, getVideoInfo]);
+    }, [url, getFastVideoInfo, getVideoInfo, reloadKey]);
+
+    // Sign in inside the app, then fetch the link again with those cookies.
+    const handleSiteSignIn = async (site: string) => {
+        if (!window.electronAPI?.openSiteLogin) return;
+        setIsSigningIn(true);
+        try {
+            const result = await window.electronAPI.openSiteLogin(site);
+            if (result.success && result.signedIn) setReloadKey((key) => key + 1);
+        } finally {
+            setIsSigningIn(false);
+        }
+    };
 
     const handlePaste = async () => {
         try {
@@ -225,6 +250,7 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
         setUrl('');
         setVideoInfo(null);
         setInfoError(undefined);
+        setFetchProblem(null);
         setIsPlaylistUrl(false);
     };
 
@@ -253,6 +279,8 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
             photoTimestampMode: selection.photoTimestampMode,
             audioFormat: selection.audioFormat,
             expectedBytes: selection.expectedBytes,
+            galleryIndices: selection.galleryIndices,
+            directUrls: selection.directUrls,
         });
         resetLink();
     };
@@ -346,6 +374,50 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
                                     isEnriching={isEnrichingInfo}
                                     error={infoError}
                                 >
+                                    {fetchProblem && !isEnrichingInfo && (
+                                        <div className="flex flex-wrap items-center gap-2 text-xs bg-warning/10 border border-warning/20 rounded-lg px-3 py-2 mb-3">
+                                            {fetchProblem.kind === 'login' ? <Lock className="w-3.5 h-3.5 text-warning shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0" />}
+                                            <span className="flex-1 min-w-[180px] text-foreground/80">
+                                                {fetchProblem.kind === 'login'
+                                                    ? t('home.loginRequired', { site: fetchProblem.site || '' })
+                                                    : fetchProblem.kind === 'blocked'
+                                                        ? t('home.fetchBlocked')
+                                                        : t('home.fetchFailed')}
+                                            </span>
+                                            {fetchProblem.kind === 'login' && fetchProblem.site && (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        disabled={isSigningIn}
+                                                        onClick={() => void handleSiteSignIn(fetchProblem.site!)}
+                                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-60"
+                                                    >
+                                                        {isSigningIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+                                                        {t('home.signInHere')}
+                                                    </button>
+                                                    {onNavigate && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onNavigate('settings')}
+                                                            className="px-2.5 py-1 rounded-md border border-foreground/15 text-foreground/75 hover:text-foreground"
+                                                        >
+                                                            {t('home.useBrowserCookies')}
+                                                        </button>
+                                                    )}
+                                                </>
+                                            )}
+                                            {fetchProblem.kind !== 'login' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setReloadKey((key) => key + 1)}
+                                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-foreground/15 text-foreground/75 hover:text-foreground"
+                                                >
+                                                    <RotateCw className="w-3.5 h-3.5" />
+                                                    {t('home.tryAgain')}
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                     <FormatPanel
                                         // A new link starts from the default choices.
                                         key={url}
@@ -471,6 +543,8 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
             <SearchModal
                 isOpen={showSearchModal}
                 onClose={() => setShowSearchModal(false)}
+                contextUrl={isMediaUrl ? url : undefined}
+                onOpenLink={handleUrlChange}
             />
 
             <PlaylistModal

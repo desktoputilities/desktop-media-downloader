@@ -30,7 +30,13 @@
         "queuedCount": "En cola: {{count}}",
         "seeAll": "Ver todo",
         "dropHint": "Pega un enlace con Ctrl+V o suéltalo en cualquier parte de la ventana",
-        "dropToStart": "Suelta el enlace para empezar"
+        "dropToStart": "Suelta el enlace para empezar",
+        "loginRequired": "Inicia sesión en {{site}} para obtener este contenido.",
+        "fetchBlocked": "El sitio bloqueó la solicitud. Vuelve a intentarlo o inicia sesión.",
+        "fetchFailed": "No se encontró contenido descargable en esta página.",
+        "signInHere": "Iniciar sesión",
+        "useBrowserCookies": "Usar cookies del navegador",
+        "tryAgain": "Reintentar"
     },
     "downloads": {
         "sectionTitle": "Cola de Descargas",
@@ -71,7 +77,8 @@
         "openSource": "Abrir el video original en el navegador",
         "removeFromHistory": "Eliminar del historial",
         "video": "Video",
-        "photo": "Foto"
+        "photo": "Foto",
+        "fileCount": "{{count}} archivos"
     },
     "system": {
         "badge": "Verificación del Sistema",
@@ -170,7 +177,11 @@
         "parallelDownloads": "Descargas en paralelo",
         "parallelDownloadsDesc": "Cuántas descargas se ejecutan a la vez. El resto espera en la cola.",
         "advancedSection": "Avanzado",
-        "shortcutPaste": "Pegar un enlace (cualquier pantalla)"
+        "shortcutPaste": "Pegar un enlace (cualquier pantalla)",
+        "siteSignIn": "Iniciar sesión en sitios",
+        "siteSignInDesc": "Para publicaciones que requieren una cuenta, sin compartir las cookies de tu navegador. La sesión queda en este equipo.",
+        "signIn": "Iniciar sesión",
+        "signOut": "Cerrar sesión"
     },
     "setupWizard": {
         "languageStep": "Elegir Idioma",
@@ -253,12 +264,15 @@
         "alreadyDownloaded": "Ya descargado: {{details}}",
         "downloadAgain": "Descargar de nuevo",
         "on": "Sí",
-        "off": "No"
+        "off": "No",
+        "image": "Imagen",
+        "itemsOf": "{{count}} de {{total}}",
+        "selectedOf": "{{count}} de {{total}} seleccionados",
+        "selectAll": "Seleccionar todo",
+        "selectNone": "No seleccionar ninguno"
     },
     "searchModal": {
-        "title": "Buscar YouTube",
-        "directUrlHint": "Para TikTok/Instagram, pegue URLs directas en la página principal",
-        "placeholder": "Buscar videos en YouTube...",
+        "directUrlHint": "TikTok no tiene búsqueda por palabras; pega un enlace de TikTok en Inicio.",
         "searchBtn": "Buscar",
         "searching": "Buscando...",
         "noResults": "Sin resultados.",
@@ -271,7 +285,13 @@
         "views": "vistas",
         "downloadSingle": "Descargar",
         "downloadSelected": "Descargar Videos",
-        "downloadAudioBtn": "Descargar Audio"
+        "downloadAudioBtn": "Descargar Audio",
+        "hashtagHint": "Busca un hashtag. Requiere iniciar sesión.",
+        "siteSearchHint": "Usa la búsqueda propia del sitio. Funciona en algunos sitios.",
+        "needsSignIn": "Requiere iniciar sesión",
+        "openPost": "Elegir contenido",
+        "titleFor": "Buscar en {{site}}",
+        "placeholderFor": "Buscar en {{site}}..."
     },
     "playlistModal": {
         "title": "Descarga de Lista",

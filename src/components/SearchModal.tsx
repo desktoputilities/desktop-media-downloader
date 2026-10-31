@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { X, Search, Youtube, Loader2, Download, Music, Eye } from 'lucide-react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { X, Search, Youtube, Loader2, Download, Music, Eye, Globe, Image as ImageIcon, Lock, LogIn, ArrowRight } from 'lucide-react';
 import { useDownloads } from '../context/DownloadContext';
 import { cn, runWithConcurrency } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
@@ -14,18 +14,51 @@ interface SearchResult {
     url: string;
     filesize_approx?: number;
     platform: string;
+    // Posts open on Home so their items can be picked; videos download directly.
+    kind?: 'post';
 }
 
 interface SearchModalProps {
     isOpen: boolean;
     onClose: () => void;
+    // The link on Home; its site is preselected, or offered as "this site".
+    contextUrl?: string;
+    onOpenLink?: (url: string) => void;
 }
 
-// Only YouTube search is supported by yt-dlp
-// TikTok/Instagram require direct URLs
-const platforms = [
-    { id: 'youtube', name: 'YouTube', icon: Youtube },
+interface Platform {
+    id: string;
+    name: string;
+    icon: React.ComponentType<{ className?: string }>;
+    domains: string[];
+    needsLogin?: boolean;
+    hint?: string;
+}
+
+const PLATFORMS: Platform[] = [
+    { id: 'youtube', name: 'YouTube', icon: Youtube, domains: ['youtube.com', 'youtu.be'] },
+    { id: 'soundcloud', name: 'SoundCloud', icon: Music, domains: ['soundcloud.com'] },
+    { id: 'bilibili', name: 'Bilibili', icon: Globe, domains: ['bilibili.com', 'b23.tv'] },
+    { id: 'niconico', name: 'Niconico', icon: Globe, domains: ['nicovideo.jp'] },
+    { id: 'instagram', name: 'Instagram', icon: ImageIcon, domains: ['instagram.com'], needsLogin: true, hint: 'searchModal.hashtagHint' },
+    { id: 'x', name: 'X', icon: ImageIcon, domains: ['x.com', 'twitter.com'], needsLogin: true },
+    { id: 'reddit', name: 'Reddit', icon: ImageIcon, domains: ['reddit.com'] },
+    { id: 'bluesky', name: 'Bluesky', icon: ImageIcon, domains: ['bsky.app'] },
+    { id: 'pinterest', name: 'Pinterest', icon: ImageIcon, domains: ['pinterest.com'] },
 ];
+
+const siteOf = (value?: string): string => {
+    if (!value) return '';
+    try {
+        return new URL(value).hostname.toLowerCase().replace(/^(www\.|m\.|mobile\.)/, '');
+    } catch {
+        return '';
+    }
+};
+
+const platformForSite = (site: string) => PLATFORMS.find((platform) => (
+    platform.domains.some((domain) => site === domain || site.endsWith(`.${domain}`))
+));
 
 const formatDuration = (seconds?: number): string => {
     if (!seconds) return '--:--';
@@ -49,7 +82,7 @@ const formatFileSize = (bytes?: number): string => {
     return `${bytes} B`;
 };
 
-const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
+const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, contextUrl, onOpenLink }) => {
     const { t } = useTranslation();
     const { searchVideos, addDownload, settings } = useDownloads();
     const [query, setQuery] = useState('');
@@ -57,13 +90,29 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
     const [results, setResults] = useState<SearchResult[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [loginSite, setLoginSite] = useState<string | null>(null);
+    const [isSigningIn, setIsSigningIn] = useState(false);
     const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
+
+    // A site with no built-in search gets a "this site" tab using its own search.
+    const contextSite = siteOf(contextUrl);
+    const otherSite = contextSite && !platformForSite(contextSite) ? contextSite : '';
+    const platforms = useMemo<Platform[]>(() => (otherSite
+        ? [...PLATFORMS, { id: `site:${otherSite}`, name: otherSite, icon: Globe, domains: [otherSite], hint: 'searchModal.siteSearchHint' }]
+        : PLATFORMS), [otherSite]);
+    const activePlatform = platforms.find((item) => item.id === platform) || platforms[0];
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setPlatform(otherSite ? `site:${otherSite}` : platformForSite(contextSite)?.id || 'youtube');
+    }, [isOpen, contextSite, otherSite]);
 
     const handleSearch = useCallback(async () => {
         if (!query.trim()) return;
 
         setIsLoading(true);
         setError(null);
+        setLoginSite(null);
         setResults([]);
         setSelectedVideos(new Set());
 
@@ -73,6 +122,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                 setResults(response.data.results);
             } else {
                 setError(response.error || 'Search failed');
+                if (response.needsLogin && response.site) setLoginSite(response.site);
             }
         } catch (e) {
             setError('Failed to search videos');
@@ -80,6 +130,22 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
             setIsLoading(false);
         }
     }, [query, platform, searchVideos]);
+
+    const handleSignIn = async () => {
+        if (!loginSite || !window.electronAPI?.openSiteLogin) return;
+        setIsSigningIn(true);
+        try {
+            const result = await window.electronAPI.openSiteLogin(loginSite);
+            if (result.signedIn) void handleSearch();
+        } finally {
+            setIsSigningIn(false);
+        }
+    };
+
+    const openPost = (result: SearchResult) => {
+        onOpenLink?.(result.url);
+        onClose();
+    };
 
     const handleKeyPress = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') {
@@ -100,8 +166,9 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
     };
 
     const selectAll = () => {
-        setSelectedVideos(new Set(results.map(r => r.id)));
+        setSelectedVideos(new Set(results.filter(r => r.kind !== 'post').map(r => r.id)));
     };
+    const hasVideoResults = results.some(r => r.kind !== 'post');
 
     const deselectAll = () => {
         setSelectedVideos(new Set());
@@ -129,8 +196,12 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                     <div className="flex items-center gap-2">
                         <Search className="w-5 h-5 text-primary" />
                         <div>
-                            <h2 className="text-lg font-semibold">{t('searchModal.title')}</h2>
-                            <p className="text-xs text-foreground/40">{t('searchModal.directUrlHint', 'For TikTok/Instagram, paste direct URLs on home page')}</p>
+                            <h2 className="text-lg font-semibold">{t('searchModal.titleFor', { site: activePlatform.name })}</h2>
+                            <p className="text-xs text-foreground/40">
+                                {activePlatform.hint
+                                    ? t(activePlatform.hint)
+                                    : activePlatform.id === 'youtube' ? t('searchModal.directUrlHint') : null}
+                            </p>
                         </div>
                     </div>
                     <button
@@ -142,15 +213,16 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                 </div>
 
                 {/* Platform Tabs */}
-                <div className="flex gap-2 p-4 border-b border-foreground/8">
+                <div className="flex gap-2 p-4 border-b border-foreground/8 flex-wrap">
                     {platforms.map((p) => {
                         const Icon = p.icon;
                         return (
                             <button
                                 key={p.id}
-                                onClick={() => setPlatform(p.id)}
+                                onClick={() => { setPlatform(p.id); setResults([]); setError(null); setLoginSite(null); }}
+                                title={p.needsLogin ? t('searchModal.needsSignIn') : undefined}
                                 className={cn(
-                                    "flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all",
+                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg font-medium text-sm transition-all",
                                     platform === p.id
                                         ? "bg-primary text-primary-foreground"
                                         : "bg-secondary hover:bg-secondary/80 text-foreground/70"
@@ -158,6 +230,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                             >
                                 <Icon className="w-4 h-4" />
                                 {p.name}
+                                {p.needsLogin && <Lock className="w-3 h-3 opacity-60" />}
                             </button>
                         );
                     })}
@@ -173,7 +246,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
                                 onKeyPress={handleKeyPress}
-                                placeholder={t('searchModal.placeholder')}
+                                placeholder={t('searchModal.placeholderFor', { site: activePlatform.name })}
                                 className="w-full pl-10 pr-4 py-3 bg-secondary/50 border border-foreground/10 rounded-xl text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
                             />
                         </div>
@@ -200,8 +273,22 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                 {/* Results */}
                 <div className="flex-1 overflow-auto p-4">
                     {error && (
-                        <div className="text-center text-foreground/70 py-8">
-                            {error}
+                        <div className="flex flex-col items-center gap-3 text-center text-foreground/70 py-8">
+                            {loginSite ? (
+                                <>
+                                    <span>{t('home.loginRequired', { site: loginSite })}</span>
+                                    <button
+                                        onClick={() => void handleSignIn()}
+                                        disabled={isSigningIn}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60"
+                                    >
+                                        {isSigningIn ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+                                        {t('home.signInHere')}
+                                    </button>
+                                </>
+                            ) : (
+                                <span className="line-clamp-3 max-w-xl">{error}</span>
+                            )}
                         </div>
                     )}
 
@@ -232,7 +319,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                                         </span>
                                     )}
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className={cn("flex items-center gap-2", !hasVideoResults && "hidden")}>
                                     <button
                                         onClick={selectAll}
                                         className="text-xs text-foreground/60 hover:text-foreground"
@@ -260,7 +347,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                                                 ? "border-primary ring-1 ring-primary/60"
                                                 : "border-foreground/8 hover:border-foreground/15"
                                         )}
-                                        onClick={() => toggleSelect(result.id)}
+                                        onClick={() => (result.kind === 'post' ? openPost(result) : toggleSelect(result.id))}
                                     >
                                         {/* Thumbnail */}
                                         <div className="aspect-video bg-black/50 relative">
@@ -276,11 +363,13 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                                                 </div>
                                             )}
                                             {/* Duration badge */}
+                                            {result.kind !== 'post' && (
                                             <div className="absolute bottom-1 right-1 bg-background/80 px-1.5 py-0.5 rounded text-xs">
                                                 {formatDuration(result.duration)}
                                             </div>
+                                            )}
                                             {/* Selection checkbox */}
-                                            <div className={cn(
+                                            {result.kind !== 'post' && <div className={cn(
                                                 "absolute top-2 left-2 w-5 h-5 rounded border-2 transition-all flex items-center justify-center",
                                                 selectedVideos.has(result.id)
                                                     ? "bg-primary border-primary"
@@ -291,7 +380,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                                     </svg>
                                                 )}
-                                            </div>
+                                            </div>}
                                         </div>
 
                                         {/* Info */}
@@ -314,8 +403,15 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                                                 )}
                                             </div>
 
+                                            {result.kind === 'post' && (
+                                                <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
+                                                    {t('searchModal.openPost')}
+                                                    <ArrowRight className="w-3 h-3" />
+                                                </div>
+                                            )}
+
                                             {/* Quick download buttons */}
-                                            <div className="flex gap-1 mt-2" onClick={(e) => e.stopPropagation()}>
+                                            {result.kind !== 'post' && <div className="flex gap-1 mt-2" onClick={(e) => e.stopPropagation()}>
                                                 <button
                                                     onClick={() => handleDownloadSingle(result, 'video')}
                                                     className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-primary/20 text-primary text-xs rounded-lg hover:bg-primary/30 transition-colors"
@@ -330,7 +426,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
                                                     <Music className="w-3 h-3" />
                                                     {t('searchModal.downloadAudio')}
                                                 </button>
-                                            </div>
+                                            </div>}
                                         </div>
                                     </div>
                                 ))}

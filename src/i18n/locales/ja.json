@@ -30,7 +30,13 @@
         "queuedCount": "待機中: {{count}}",
         "seeAll": "すべて表示",
         "dropHint": "Ctrl+V でリンクを貼り付けるか、ウィンドウのどこかにドロップしてください",
-        "dropToStart": "リンクをドロップして開始"
+        "dropToStart": "リンクをドロップして開始",
+        "loginRequired": "このメディアを取得するには{{site}}にサインインしてください。",
+        "fetchBlocked": "サイトがリクエストをブロックしました。もう一度試すか、サインインしてください。",
+        "fetchFailed": "このページにダウンロードできるメディアが見つかりませんでした。",
+        "signInHere": "サインイン",
+        "useBrowserCookies": "ブラウザのCookieを使う",
+        "tryAgain": "再試行"
     },
     "downloads": {
         "sectionTitle": "ダウンロードキュー",
@@ -71,7 +77,8 @@
         "openSource": "元の動画をブラウザーで開く",
         "removeFromHistory": "履歴から削除",
         "video": "動画",
-        "photo": "写真"
+        "photo": "写真",
+        "fileCount": "{{count}}ファイル"
     },
     "system": {
         "badge": "システムチェック",
@@ -170,7 +177,11 @@
         "parallelDownloads": "同時ダウンロード数",
         "parallelDownloadsDesc": "同時に実行するダウンロードの数。残りはキューで待機します。",
         "advancedSection": "詳細設定",
-        "shortcutPaste": "リンクを貼り付け（どの画面でも）"
+        "shortcutPaste": "リンクを貼り付け（どの画面でも）",
+        "siteSignIn": "サイトにサインイン",
+        "siteSignInDesc": "アカウントが必要な投稿用です。ブラウザのCookieは共有しません。サインイン情報はこのコンピューターに保存されます。",
+        "signIn": "サインイン",
+        "signOut": "サインアウト"
     },
     "setupWizard": {
         "languageStep": "言語を選択",
@@ -253,12 +264,15 @@
         "alreadyDownloaded": "ダウンロード済み: {{details}}",
         "downloadAgain": "再ダウンロード",
         "on": "オン",
-        "off": "オフ"
+        "off": "オフ",
+        "image": "画像",
+        "itemsOf": "{{total}}件中{{count}}件",
+        "selectedOf": "{{total}}件中{{count}}件を選択",
+        "selectAll": "すべて選択",
+        "selectNone": "選択を解除"
     },
     "searchModal": {
-        "title": "YouTube検索",
-        "directUrlHint": "TikTok/Instagramの場合はホームページに直接URLを貼り付け",
-        "placeholder": "YouTube動画を検索...",
+        "directUrlHint": "TikTokはキーワード検索に対応していません。ホームにTikTokのリンクを貼り付けてください。",
         "searchBtn": "検索",
         "searching": "検索中...",
         "noResults": "結果が見つかりません。",
@@ -271,7 +285,13 @@
         "views": "回視聴",
         "downloadSingle": "ダウンロード",
         "downloadSelected": "動画をダウンロード",
-        "downloadAudioBtn": "音声をダウンロード"
+        "downloadAudioBtn": "音声をダウンロード",
+        "hashtagHint": "ハッシュタグを検索します。サインインが必要です。",
+        "siteSearchHint": "このサイト自体の検索を使います。一部のサイトで動作します。",
+        "needsSignIn": "サインインが必要",
+        "openPost": "メディアを選ぶ",
+        "titleFor": "{{site}}を検索",
+        "placeholderFor": "{{site}}を検索..."
     },
     "playlistModal": {
         "title": "プレイリストダウンロード",

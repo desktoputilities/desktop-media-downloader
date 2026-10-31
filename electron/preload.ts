@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   onDownloadProgress: (listener: DownloadEventListener<{ id: string; progress: number; speed?: string; eta?: string; speedBps?: number }>) =>
     subscribe('download-progress', listener),
-  onDownloadComplete: (listener: DownloadEventListener<{ id: string; filePath?: string; fileName?: string; fileSize?: number; fileExt?: string }>) =>
+  onDownloadComplete: (listener: DownloadEventListener<{ id: string; filePath?: string; fileName?: string; fileSize?: number; fileExt?: string; fileCount?: number; totalBytes?: number }>) =>
     subscribe('download-complete', listener),
   onDownloadError: (listener: DownloadEventListener<{ id: string; error: string }>) =>
     subscribe('download-error', listener),
@@ -39,12 +39,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPlaylistInfo: (url: string) => ipcRenderer.invoke('get-playlist-info', url),
 
   // Search functions
-  searchVideos: (query: string, platform: string, count: number) =>
-    ipcRenderer.invoke('search-videos', query, platform, count),
+  searchVideos: (query: string, platform: string, count: number, cookiesBrowser?: string) =>
+    ipcRenderer.invoke('search-videos', query, platform, count, cookiesBrowser),
 
   // Browser cookie functions (for authentication)
   getAvailableBrowsers: () => ipcRenderer.invoke('get-available-browsers'),
   validateBrowserCookies: (browser: string) => ipcRenderer.invoke('validate-browser-cookies', browser),
+
+  // In-app sign-in to a site (alternative to browser cookies)
+  openSiteLogin: (site: string) => ipcRenderer.invoke('site-login-open', site),
+  getSiteLoginStatus: (site: string) => ipcRenderer.invoke('site-login-status', site),
+  clearSiteLogin: (site?: string) => ipcRenderer.invoke('site-login-clear', site),
 
   // App info
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),

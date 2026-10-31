@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, Notification, nativeImage, nativeTheme, net, type OpenDialogOptions } from 'electron'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -26,6 +27,18 @@ import {
   summarizeAudioDownload,
   summarizeRequestedDownloads,
 } from './video-info'
+import {
+  classifyEngineError,
+  cleanMediaTitle,
+  mediaKindForUrl,
+  parseGalleryDlJson,
+  parseGallerySearchResults,
+  pickMainMedia,
+  routeForUrl,
+  type GalleryResult,
+  type PostResult,
+  type SniffedMedia,
+} from './media-resolver'
 
 // The built directory structure
 process.env.APP_ROOT = path.join(__dirname, '..')
@@ -170,6 +183,227 @@ const getYtDlpPath = (): string => {
 
   // Fallback to system PATH even if probe failed (yt-dlp might appear later).
   return 'yt-dlp';
+};
+
+// gallery-dl reads image posts and carousels (Instagram, X, TikTok photos,
+// Reddit, ...). Same lookup as yt-dlp; null when it is not installed.
+let galleryDlPathCache: string | null | undefined;
+
+const getGalleryDlPath = (): string | null => {
+  if (galleryDlPathCache !== undefined) return galleryDlPathCache;
+  const exeName = process.platform === 'win32' ? 'gallery-dl.exe' : 'gallery-dl';
+  const candidates = [
+    path.join(process.resourcesPath, 'bin', exeName),
+    path.join(process.env.APP_ROOT || '', 'bin', exeName),
+    'gallery-dl',
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (candidate !== 'gallery-dl' && !fs.existsSync(candidate)) continue;
+      const probe = spawnSync(candidate, ['--version'], { stdio: 'ignore', windowsHide: true, timeout: 30000 });
+      if (probe.status === 0) {
+        galleryDlPathCache = candidate;
+        return candidate;
+      }
+    } catch {
+      // Try next candidate.
+    }
+  }
+  galleryDlPathCache = null;
+  return null;
+};
+
+const spawnGalleryDl = (args: string[]) => spawn(getGalleryDlPath() || 'gallery-dl', [
+  '--config-ignore',
+  '--no-input',
+  '--http-timeout', '30',
+  ...args,
+], { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+
+// ==================== SITE SIGN-IN COOKIES ====================
+// Users can sign in to a site inside the app instead of sharing their browser's
+// cookies. The sign-in window uses its own persistent session; its cookies are
+// exported in Netscape format for both engines.
+const SITE_LOGIN_PARTITION = 'persist:site-login';
+const getSiteCookiesFile = () => path.join(app.getPath('userData'), 'site-cookies.txt');
+
+const exportSiteCookies = async (): Promise<number> => {
+  const { session } = require('electron') as typeof import('electron');
+  const cookies = await session.fromPartition(SITE_LOGIN_PARTITION).cookies.get({});
+  const lines = ['# Netscape HTTP Cookie File', ''];
+  for (const cookie of cookies) {
+    if (!cookie.domain || /[\t\r\n]/.test(`${cookie.name}${cookie.value}`)) continue;
+    const domain = cookie.domain;
+    lines.push([
+      cookie.httpOnly ? `#HttpOnly_${domain}` : domain,
+      domain.startsWith('.') ? 'TRUE' : 'FALSE',
+      cookie.path || '/',
+      cookie.secure ? 'TRUE' : 'FALSE',
+      String(Math.round(cookie.expirationDate || 0)),
+      cookie.name,
+      cookie.value,
+    ].join('\t'));
+  }
+  const filePath = getSiteCookiesFile();
+  if (cookies.length === 0) {
+    await fsPromises.rm(filePath, { force: true });
+  } else {
+    await fsPromises.writeFile(filePath, `${lines.join('\n')}\n`, { encoding: 'utf-8', mode: 0o600 });
+  }
+  return cookies.length;
+};
+
+const siteDomainOf = (value: string): string => {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^(www\.|m\.|mobile\.)/, '');
+  } catch {
+    return '';
+  }
+};
+
+const getStableIdFragment = (value: string) => crypto.createHash('sha1').update(value).digest('hex').slice(0, 16);
+
+// True when the in-app sign-in holds cookies for this link's site.
+const hasSiteLogin = (targetUrl: string): boolean => {
+  const domain = siteDomainOf(targetUrl);
+  if (!domain) return false;
+  try {
+    const text = fs.readFileSync(getSiteCookiesFile(), 'utf-8');
+    const base = domain.split('.').slice(-2).join('.');
+    return text.split('\n').some((line) => {
+      const host = line.replace(/^#HttpOnly_/, '').split('\t')[0]?.replace(/^\./, '');
+      return Boolean(host) && !line.startsWith('# ') && (host === base || host.endsWith(`.${base}`));
+    });
+  } catch {
+    return false;
+  }
+};
+
+// The in-app sign-in wins for its site; otherwise the browser chosen in Settings.
+const cookieArgsFor = (engine: 'yt-dlp' | 'gallery-dl', targetUrl: string, browser?: string): string[] => {
+  if (hasSiteLogin(targetUrl)) {
+    return [engine === 'yt-dlp' ? '--cookies' : '-C', getSiteCookiesFile()];
+  }
+  return browser ? ['--cookies-from-browser', browser] : [];
+};
+
+interface GalleryProbe {
+  result: GalleryResult;
+  error?: string;
+}
+
+const runGalleryDlInfo = (targetUrl: string, cookiesBrowser?: string): Promise<GalleryProbe> => {
+  if (!getGalleryDlPath()) {
+    return Promise.resolve({ result: { items: [], isCollection: false }, error: 'gallery-dl is not installed' });
+  }
+  return new Promise((resolve) => {
+    const proc = spawnGalleryDl([
+      '-j',
+      '--range', '1-100',
+      ...cookieArgsFor('gallery-dl', targetUrl, cookiesBrowser),
+      targetUrl,
+    ]);
+    let output = '';
+    let errorOutput = '';
+    const timer = setTimeout(() => terminateProcessTree(proc), 60000);
+    proc.stdout.on('data', (data) => { output += data.toString(); });
+    proc.stderr.on('data', (data) => { errorOutput += data.toString(); });
+    proc.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ result: { items: [], isCollection: false }, error: error.message });
+    });
+    proc.on('close', () => {
+      clearTimeout(timer);
+      const result = parseGalleryDlJson(output);
+      const error = result.items.length > 0
+        ? undefined
+        : result.error || errorOutput.split(/\r?\n/).filter((line) => /error|warning/i.test(line)).join('\n') || errorOutput || 'No media found';
+      resolve({ result, error });
+    });
+  });
+};
+
+// ==================== PAGE SCAN FALLBACK ====================
+// Last resort for pages neither engine understands: load the page in a hidden,
+// sandboxed window with its own throwaway session, note the media it requests
+// and what it declares, then keep only the page's main media.
+const sniffPageMedia = async (pageUrl: string): Promise<SniffedMedia | undefined> => {
+  const { session } = require('electron') as typeof import('electron');
+  const partition = `page-scan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const scanSession = session.fromPartition(partition);
+  const seen = new Map<string, SniffedMedia>();
+
+  scanSession.webRequest.onHeadersReceived((details, callback) => {
+    const header = (name: string) => {
+      const entry = Object.entries(details.responseHeaders || {}).find(([key]) => key.toLowerCase() === name);
+      return entry?.[1]?.[0];
+    };
+    const kind = mediaKindForUrl(details.url, header('content-type'));
+    // Stream segments are pieces of a manifest, not media of their own.
+    if (kind && /^https?:/i.test(details.url) && !/\.(?:ts|m4s|aac)(?:[?#]|$)|[?&](?:range|bytes)=/i.test(details.url)) {
+      const bytes = Number(header('content-length')) || undefined;
+      seen.set(details.url, { url: details.url, kind, bytes: Math.max(bytes || 0, seen.get(details.url)?.bytes || 0) || undefined });
+    }
+    callback({});
+  });
+
+  const scanWin = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    webPreferences: {
+      partition,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',
+    },
+  });
+  scanWin.webContents.setAudioMuted(true);
+  scanWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  try {
+    await Promise.race([
+      scanWin.loadURL(pageUrl, { userAgent: getBrowserUserAgent() }).catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 20000)),
+    ]);
+    // Give players a moment to request their streams.
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+
+    const declared = await scanWin.webContents.executeJavaScript(`(() => {
+      const abs = (value) => { try { return new URL(value, location.href).href; } catch { return ''; } };
+      const meta = (name) => document.querySelector('meta[property="' + name + '"], meta[name="' + name + '"]')?.content || '';
+      const out = [];
+      for (const name of ['og:video:secure_url', 'og:video:url', 'og:video', 'twitter:player:stream']) {
+        const value = meta(name);
+        if (value) out.push({ url: abs(value), kind: 'video', declared: true });
+      }
+      const ogImage = meta('og:image') || meta('twitter:image');
+      if (ogImage) out.push({ url: abs(ogImage), kind: 'image', declared: true, width: Number(meta('og:image:width')) || undefined, height: Number(meta('og:image:height')) || undefined });
+      for (const video of document.querySelectorAll('video')) {
+        const src = video.currentSrc || video.src || video.querySelector('source')?.src || '';
+        const rect = video.getBoundingClientRect();
+        if (src && !src.startsWith('blob:')) out.push({ url: abs(src), kind: 'video', duration: Number.isFinite(video.duration) ? video.duration : undefined, width: video.videoWidth || undefined, height: video.videoHeight || undefined, visibleArea: rect.width * rect.height });
+      }
+      for (const img of document.images) {
+        const rect = img.getBoundingClientRect();
+        const src = img.currentSrc || img.src;
+        if (src && !src.startsWith('data:')) out.push({ url: abs(src), kind: 'image', width: img.naturalWidth || undefined, height: img.naturalHeight || undefined, visibleArea: rect.width * rect.height });
+      }
+      return out.slice(0, 400);
+    })()`, true).catch(() => []) as SniffedMedia[];
+
+    const merged = new Map(seen);
+    for (const item of declared) {
+      if (!item?.url || !/^https?:/i.test(item.url)) continue;
+      merged.set(item.url, { ...merged.get(item.url), ...item });
+    }
+    return pickMainMedia([...merged.values()]);
+  } finally {
+    scanWin.destroy();
+    void scanSession.clearStorageData().catch(() => undefined);
+  }
 };
 
 let ffmpegAvailable: boolean | null = null;
@@ -1639,6 +1873,9 @@ interface FinalizedFile {
   fileName: string;
   fileSize: number;
   fileExt: string;
+  // Set when one download saved several files (a carousel).
+  fileCount?: number;
+  totalBytes?: number;
 }
 
 const describeFile = async (filePath: string): Promise<Partial<FinalizedFile>> => {
@@ -1722,6 +1959,10 @@ const finalizeStagedDownload = async (
     fileName: path.basename(primary.destinationPath),
     fileSize: primary.size,
     fileExt: path.extname(primary.destinationPath).replace('.', '').toLowerCase(),
+    ...(moved.length > 1 ? {
+      fileCount: moved.length,
+      totalBytes: moved.reduce((sum, file) => sum + file.size, 0),
+    } : {}),
   };
 };
 
@@ -1942,13 +2183,15 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
     // Initial standard yt-dlp call. With resolveSizes, yt-dlp also runs the
     // download's own format selection for each SIZE_LADDER height, which
     // gives real per-quality sizes in requested_downloads.
-    const runYtDlp = (targetUrl: string, referer?: string, resolveSizes = false): Promise<any> => {
+    // impersonate sends a real browser's TLS fingerprint, which gets past many
+    // 403 and Cloudflare checks; it sets its own user agent.
+    const runYtDlp = (targetUrl: string, referer?: string, resolveSizes = false, impersonate = false): Promise<any> => {
       return new Promise((resolveInner) => {
         const args = [
           '--no-playlist',
           '--dump-single-json',
           '--no-warnings',
-          '--user-agent', getBrowserUserAgent(),
+          ...(impersonate ? ['--impersonate', 'chrome'] : ['--user-agent', getBrowserUserAgent()]),
         ];
         if (resolveSizes) {
           const ffmpegReady = isFfmpegAvailable();
@@ -1961,7 +2204,7 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
           args.push('-f', selectors.join(','), ...getVideoFormatSortArgs());
         }
         if (referer) args.push('--referer', referer);
-        if (cookiesBrowser) args.push('--cookies-from-browser', cookiesBrowser);
+        args.push(...cookieArgsFor('yt-dlp', referer || targetUrl, cookiesBrowser));
         args.push(targetUrl);
 
         const ytdlp = spawnYtDlp(getYtDlpPath(), args);
@@ -2001,6 +2244,30 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
           }
         });
       });
+    };
+
+    // Image posts and carousels: the panel lists the items instead of qualities.
+    const galleryInfoResponse = (gallery: GalleryResult) => {
+      const items = gallery.items;
+      const firstImage = items.find((item) => item.kind === 'image');
+      const host = siteDomainOf(url);
+      return {
+        success: true,
+        data: {
+          id: `media_${getStableIdFragment(url)}`,
+          title: cleanMediaTitle(gallery.title || deriveTitleFromUrl(url)) || host,
+          thumbnail: firstImage?.thumbnail || items.find((item) => item.thumbnail)?.thumbnail,
+          duration: 0,
+          uploader: gallery.uploader,
+          webpage_url: url,
+          extractor: gallery.category || host,
+          videoQualities: [],
+          hasAudio: items.some((item) => item.kind !== 'image'),
+          mediaKind: items.length === 1 && items[0].kind === 'image' ? 'image' : 'gallery',
+          items,
+          isCollection: gallery.isCollection,
+        },
+      };
     };
 
     // Helper to process formats and resolving the final promise
@@ -2106,6 +2373,32 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
         qualitySizeMap[key] = detail.bytes;
       }
 
+      // yt-dlp also returns plain image files (a direct .jpg, some image hosts).
+      const fileUrl = typeof info.url === 'string' ? info.url : formats[0]?.url;
+      const isImage = videoQualities.length === 0
+        && (mediaKindForUrl(`file.${String(info.ext || '')}`) === 'image' || (fileUrl && mediaKindForUrl(fileUrl) === 'image'));
+      if (isImage && fileUrl) {
+        resolve(galleryInfoResponse({
+          items: [{
+            index: 1,
+            kind: 'image',
+            url: fileUrl,
+            ext: info.ext,
+            width: Number(info.width) || undefined,
+            height: Number(info.height) || undefined,
+            bytes: Number(info.filesize || info.filesize_approx) || undefined,
+            thumbnail: fileUrl,
+            direct: true,
+          }],
+          title: info.title,
+          uploader: info.uploader,
+          category: info.extractor_key || info.extractor,
+          isCollection: false,
+        }));
+        return;
+      }
+      const hasAudioStream = formats.some((f: any) => f.acodec && f.acodec !== 'none');
+
       resolve({
         success: true,
         data: {
@@ -2123,7 +2416,10 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
           videoQualitySizes: qualitySizeMap,
           videoQualityDetails: qualityDetails,
           audioDetail: summarizeAudioDownload(info.requested_downloads),
-          hasAudio: formats.some((f: any) => f.acodec && f.acodec !== 'none'),
+          hasAudio: hasAudioStream,
+          mediaKind: videoQualities.length === 0 && hasAudioStream && formats.every((f: any) => f.vcodec === 'none')
+            ? 'audio'
+            : 'video',
           // Pass through HTML-extracted direct sources when available
           ...(info._directExtractedSources ? {
             extractedSources: info._directExtractedSources,
@@ -2133,11 +2429,51 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
       });
     };
 
+    // 0) Posts that are usually images (Instagram posts, X posts, TikTok photo
+    // posts, Reddit, ...) go to gallery-dl first. A post with one video still
+    // goes through yt-dlp below so the panel can offer qualities.
+    const route = routeForUrl(url);
+    let gallery: GalleryProbe | undefined;
+    const errors: string[] = [];
+    if (route === 'gallery' && getGalleryDlPath()) {
+      gallery = await runGalleryDlInfo(url, cookiesBrowser);
+      const items = gallery.result.items;
+      if (items.length > 1 || (items.length === 1 && items[0].kind !== 'video')) {
+        resolve(galleryInfoResponse(gallery.result));
+        return;
+      }
+      if (gallery.error) errors.push(gallery.error);
+    }
+
     // 1) Standard extraction via yt-dlp extractor. If the size selectors are what
-    // failed, retry plainly so sizes never cost a working preview.
+    // failed, retry plainly so sizes never cost a working preview. A blocked
+    // request is retried once with browser impersonation.
     let result: any = await runYtDlp(url, undefined, true);
     if (!result.success && /requested format/i.test(String(result.error))) {
       result = await runYtDlp(url);
+    }
+    if (!result.success && classifyEngineError(result.error) === 'blocked') {
+      const impersonated = await runYtDlp(url, undefined, true, true);
+      if (impersonated.success || !/impersonat/i.test(String(impersonated.error))) result = impersonated;
+    }
+
+    if (!result.success) {
+      errors.push(String(result.error || ''));
+      // The single video gallery-dl found is still downloadable through it.
+      if (gallery?.result.items.length) {
+        resolve(galleryInfoResponse(gallery.result));
+        return;
+      }
+      // yt-dlp has no image support, so a "no video" post may be photos.
+      const kind = classifyEngineError(result.error);
+      if (!gallery && (kind === 'no-media' || kind === 'unsupported') && getGalleryDlPath()) {
+        gallery = await runGalleryDlInfo(url, cookiesBrowser);
+        if (gallery.result.items.length > 0 && !gallery.result.isCollection) {
+          resolve(galleryInfoResponse(gallery.result));
+          return;
+        }
+        if (gallery.error) errors.push(gallery.error);
+      }
     }
     const initialTitle = result.success ? result.data?.title : undefined;
 
@@ -2245,10 +2581,149 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
       }
 
       processAndResolve(result.data);
-    } else {
-      resolve(result);
+      return;
     }
+
+    // 5) Last resort: open the page in a hidden window and take its main media.
+    // Login walls are skipped: the page would only show the sign-in form.
+    // Only when no engine knows the page or it was blocked: on a known site
+    // whose video is gone, the scan would just find its thumbnail.
+    const errorKinds = errors.map((message) => classifyEngineError(message));
+    const loginNeeded = errorKinds.includes('login');
+    const worthScanning = errorKinds.some((kind) => kind === 'unsupported' || kind === 'blocked' || kind === 'no-media');
+    if (!loginNeeded && worthScanning && /^https?:\/\//i.test(url)) {
+      const main = await sniffPageMedia(url).catch((error) => {
+        console.warn('[get-video-info] Page scan failed:', error);
+        return undefined;
+      });
+      if (main?.kind === 'image') {
+        resolve(galleryInfoResponse({
+          items: [{ index: 1, kind: 'image', url: main.url, width: main.width, height: main.height, bytes: main.bytes, thumbnail: main.url, direct: true }],
+          title: deriveTitleFromUrl(url),
+          isCollection: false,
+        }));
+        return;
+      }
+      if (main) {
+        const directResult = await runYtDlp(main.url, url);
+        if (directResult.success) {
+          directResult.data.webpage_url = url;
+          if (isGenericStreamTitle(directResult.data.title)) {
+            directResult.data.title = deriveTitleFromUrl(url) || directResult.data.title;
+          }
+          processAndResolve(directResult.data);
+          return;
+        }
+        resolve({
+          success: true,
+          data: {
+            id: `direct_${Date.now()}`,
+            title: deriveTitleFromUrl(url) || 'Direct media source',
+            duration: 0,
+            uploader: siteDomainOf(url),
+            webpage_url: url,
+            extractor: 'html-direct',
+            videoQualities: [],
+            hasAudio: true,
+            mediaKind: main.kind,
+            extractedUrl: main.url,
+            extractedSources: {},
+          },
+        });
+        return;
+      }
+    }
+
+    const errorKind = loginNeeded ? 'login' : errorKinds.find((kind) => kind !== 'other') || 'other';
+    resolve({ ...result, errorKind, needsLogin: errorKind === 'login', site: siteDomainOf(url) });
   });
+});
+
+// ==================== SITE SIGN-IN ====================
+const SITE_LOGIN_PAGES: Record<string, string> = {
+  'instagram.com': 'https://www.instagram.com/accounts/login/',
+  'x.com': 'https://x.com/i/flow/login',
+  'twitter.com': 'https://x.com/i/flow/login',
+  'tiktok.com': 'https://www.tiktok.com/login',
+  'reddit.com': 'https://www.reddit.com/login/',
+  'facebook.com': 'https://www.facebook.com/login/',
+  'pinterest.com': 'https://www.pinterest.com/login/',
+  'threads.net': 'https://www.threads.net/login',
+  'threads.com': 'https://www.threads.com/login',
+  'bsky.app': 'https://bsky.app/',
+};
+
+const normalizeSiteDomain = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const domain = (siteDomainOf(value) || value.trim().toLowerCase()).replace(/^(www\.|m\.|mobile\.)/, '');
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(domain) ? domain : null;
+};
+
+let siteLoginWin: BrowserWindow | null = null;
+
+// Opens the site's sign-in page in its own window; resolves when the user
+// closes it, with whether cookies for that site were saved.
+ipcMain.handle('site-login-open', async (_event, site: string) => {
+  const domain = normalizeSiteDomain(site);
+  if (!domain) return { success: false, error: 'Invalid site' };
+  const base = domain.split('.').slice(-2).join('.');
+  const loginUrl = SITE_LOGIN_PAGES[domain] || SITE_LOGIN_PAGES[base] || `https://${domain}/`;
+
+  siteLoginWin?.destroy();
+  const loginWin = new BrowserWindow({
+    width: 520,
+    height: 760,
+    parent: win || undefined,
+    title: `Sign in to ${base}`,
+    autoHideMenuBar: true,
+    webPreferences: {
+      partition: SITE_LOGIN_PARTITION,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  siteLoginWin = loginWin;
+  // Sign-in pop-ups (for example "Continue with Google") stay in the same session.
+  loginWin.webContents.setWindowOpenHandler(({ url: popupUrl }) => (
+    /^https:\/\//i.test(popupUrl) ? { action: 'allow' } : { action: 'deny' }
+  ));
+  loginWin.webContents.setUserAgent(getBrowserUserAgent());
+  void loginWin.loadURL(loginUrl);
+
+  await new Promise<void>((resolve) => loginWin.once('closed', () => resolve()));
+  if (siteLoginWin === loginWin) siteLoginWin = null;
+  await exportSiteCookies();
+  return { success: true, signedIn: hasSiteLogin(`https://${domain}/`) };
+});
+
+ipcMain.handle('site-login-status', async (_event, site?: string) => {
+  const domain = normalizeSiteDomain(site);
+  return { signedIn: domain ? hasSiteLogin(`https://${domain}/`) : false };
+});
+
+// Signs out of one site (its cookies only) or of every site.
+ipcMain.handle('site-login-clear', async (_event, site?: string) => {
+  const { session } = require('electron') as typeof import('electron');
+  const loginSession = session.fromPartition(SITE_LOGIN_PARTITION);
+  const domain = normalizeSiteDomain(site);
+  if (domain) {
+    const base = domain.split('.').slice(-2).join('.');
+    const cookies = await loginSession.cookies.get({});
+    await Promise.all(cookies
+      .filter((cookie) => {
+        const host = (cookie.domain || '').replace(/^\./, '');
+        return host === base || host.endsWith(`.${base}`);
+      })
+      .map((cookie) => loginSession.cookies.remove(
+        `http${cookie.secure ? 's' : ''}://${(cookie.domain || '').replace(/^\./, '')}${cookie.path || '/'}`,
+        cookie.name,
+      ).catch(() => undefined)));
+  } else {
+    await loginSession.clearStorageData();
+  }
+  await exportSiteCookies();
+  return { success: true };
 });
 
 // ==================== PLAYLIST/CHANNEL INFO ====================
@@ -2354,16 +2829,161 @@ ipcMain.handle('get-playlist-info', async (_event, url: string) => {
 });
 
 // ==================== SEARCH VIDEOS ====================
-ipcMain.handle('search-videos', async (_event, query: string, platform: string = 'youtube', count: number = 20) => {
+// yt-dlp's built-in search extractors.
+const ENGINE_SEARCH_PREFIXES: Record<string, string> = {
+  youtube: 'ytsearch',
+  soundcloud: 'scsearch',
+  bilibili: 'bilisearch',
+  niconico: 'nicosearch',
+};
+
+const POST_SEARCH_URLS: Record<string, (query: string) => string> = {
+  instagram: (query) => `https://www.instagram.com/explore/tags/${encodeURIComponent(query.replace(/^#/, '').replace(/\s+/g, ''))}/`,
+  x: (query) => `https://x.com/search?q=${encodeURIComponent(query)}&f=media`,
+  reddit: (query) => `https://www.reddit.com/search/?q=${encodeURIComponent(query)}`,
+  bluesky: (query) => `https://bsky.app/search?q=${encodeURIComponent(query)}`,
+  pinterest: (query) => `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`,
+};
+
+const runGalleryDlSearch = (searchUrl: string, count: number, cookiesBrowser?: string): Promise<{ results: PostResult[]; error?: string }> => {
+  if (!getGalleryDlPath()) return Promise.resolve({ results: [], error: 'gallery-dl is not installed' });
+  return new Promise((resolve) => {
+    // Several files can belong to one post, so read more files than results wanted.
+    const proc = spawnGalleryDl(['-j', '--range', `1-${count * 3}`, ...cookieArgsFor('gallery-dl', searchUrl, cookiesBrowser), searchUrl]);
+    let output = '';
+    let errorOutput = '';
+    const timer = setTimeout(() => terminateProcessTree(proc), 60000);
+    proc.stdout.on('data', (data) => { output += data.toString(); });
+    proc.stderr.on('data', (data) => { errorOutput += data.toString(); });
+    proc.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ results: [], error: error.message });
+    });
+    proc.on('close', () => {
+      clearTimeout(timer);
+      const results = parseGallerySearchResults(output, count);
+      resolve({ results, error: results.length ? undefined : (parseGalleryDlJson(output).error || errorOutput.trim() || 'No results') });
+    });
+  });
+};
+
+const toSearchResponse = (results: PostResult[], query: string, platform: string) => ({
+  success: true,
+  data: {
+    query,
+    platform,
+    results: results.map((result) => ({ ...result, platform, kind: 'post' })),
+  },
+});
+
+const searchPosts = async (searchUrl: string, query: string, platform: string, count: number, cookiesBrowser?: string) => {
+  const { results, error } = await runGalleryDlSearch(searchUrl, count, cookiesBrowser);
+  if (results.length > 0) return toSearchResponse(results, query, platform);
+  const errorKind = classifyEngineError(error);
+  return { success: false, error: error || 'No results', errorKind, needsLogin: errorKind === 'login', site: siteDomainOf(searchUrl), searchUrl };
+};
+
+// Finds a site's search URL template from its OpenSearch description.
+const findOpenSearchTemplate = async (origin: string): Promise<string | undefined> => {
+  try {
+    const page = await net.fetch(origin, { headers: { 'User-Agent': getBrowserUserAgent() } });
+    const html = (await page.text()).slice(0, 400_000);
+    const link = html.match(/<link[^>]+type=["']application\/opensearchdescription\+xml["'][^>]*>/i)?.[0];
+    const href = link?.match(/href=["']([^"']+)["']/i)?.[1];
+    if (!href) return undefined;
+    const description = await net.fetch(new URL(href, origin).href, { headers: { 'User-Agent': getBrowserUserAgent() } });
+    const xml = await description.text();
+    const urls = [...xml.matchAll(/<Url\b[^>]*>/gi)].map((match) => match[0]);
+    const htmlUrl = urls.find((tag) => /type=["']text\/html["']/i.test(tag)) || urls[0];
+    const template = htmlUrl?.match(/template=["']([^"']+)["']/i)?.[1]?.replace(/&amp;/g, '&');
+    return template && template.includes('{searchTerms}') ? new URL(template, origin).href.replace(/%7BsearchTerms%7D/gi, '{searchTerms}') : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+// Experimental: runs the site's own search, then reads the results page with
+// yt-dlp (video sites) or gallery-dl (image sites).
+const searchSite = async (rawSite: string, query: string, count: number, cookiesBrowser?: string) => {
+  const domain = siteDomainOf(rawSite.includes('://') ? rawSite : `https://${rawSite}`);
+  if (!domain) return { success: false, error: 'Invalid site' };
+  const origin = `https://${domain}/`;
+  const template = await findOpenSearchTemplate(origin) || `${origin}search?q={searchTerms}`;
+  const searchUrl = template.replace(/\{searchTerms\}/g, encodeURIComponent(query)).replace(/\{[^}]+\?\}/g, '');
+  const platform = `site:${domain}`;
+
+  const listed: any = await new Promise((resolve) => {
+    const proc = spawnYtDlp(getYtDlpPath(), ['--dump-single-json', '--flat-playlist', '--playlist-end', String(count), '--no-warnings', ...cookieArgsFor('yt-dlp', searchUrl, cookiesBrowser), searchUrl]);
+    let output = '';
+    const timer = setTimeout(() => terminateProcessTree(proc), 60000);
+    proc.stdout.on('data', (data) => { output += data.toString(); });
+    proc.on('error', () => { clearTimeout(timer); resolve(null); });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      try {
+        resolve(code === 0 ? JSON.parse(output) : null);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+  const entries = Array.isArray(listed?.entries) ? listed.entries.filter((entry: any) => entry?.url || entry?.webpage_url) : [];
+  if (entries.length > 0) {
+    return {
+      success: true,
+      data: {
+        query,
+        platform,
+        results: entries.slice(0, count).map((entry: any) => ({
+          id: String(entry.id || entry.url),
+          title: entry.title || entry.url,
+          thumbnail: entry.thumbnail || entry.thumbnails?.[0]?.url,
+          duration: entry.duration,
+          uploader: entry.uploader || entry.channel,
+          url: entry.webpage_url || entry.url,
+          platform,
+        })),
+      },
+    };
+  }
+
+  const posts = await runGalleryDlSearch(searchUrl, count, cookiesBrowser);
+  if (posts.results.length > 0) return toSearchResponse(posts.results, query, platform);
+  return { success: false, error: 'This site\'s search results could not be read', errorKind: 'unsupported', site: domain, searchUrl };
+};
+
+ipcMain.handle('search-videos', async (_event, query: string, platform: string = 'youtube', count: number = 20, cookiesBrowser?: string) => {
+  try {
+    cookiesBrowser = normalizeCookieBrowser(cookiesBrowser);
+  } catch {
+    cookiesBrowser = undefined;
+  }
+  platform = typeof platform === 'string' ? platform.slice(0, 200) : 'youtube';
   const normalizedQuery = typeof query === 'string' ? query.trim().slice(0, 300) : '';
   const normalizedCount = Math.max(1, Math.min(50, Number.isFinite(Number(count)) ? Math.floor(Number(count)) : 20));
   if (!normalizedQuery) {
     return { success: false, error: 'Enter a search query' };
   }
 
+  // Image-first sites search through gallery-dl and return posts; their search
+  // pages need a signed-in account.
+  const postSearchUrl = POST_SEARCH_URLS[platform]?.(normalizedQuery);
+  if (postSearchUrl) {
+    return searchPosts(postSearchUrl, normalizedQuery, platform, normalizedCount, cookiesBrowser);
+  }
+
+  // Any other site: its own search page, found through OpenSearch or a common pattern.
+  if (platform.startsWith('site:')) {
+    return searchSite(platform.slice(5), normalizedQuery, normalizedCount, cookiesBrowser);
+  }
+
+  const prefix = ENGINE_SEARCH_PREFIXES[platform];
+  if (!prefix) {
+    return { success: false, error: 'Search is not available for this site' };
+  }
+
   return new Promise((resolve) => {
-    // Generic search strategy
-    const searchQuery = `ytsearch${normalizedCount}:${normalizedQuery}`;
+    const searchQuery = `${prefix}${normalizedCount}:${normalizedQuery}`;
 
     const ytdlp = spawnYtDlp(getYtDlpPath(), [
       '--dump-single-json',
@@ -2884,7 +3504,11 @@ interface DownloadOptions {
   id?: string;
   url: string;
   titleOverride?: string;
-  format: 'video' | 'audio' | 'photo';
+  format: 'video' | 'audio' | 'photo' | 'gallery';
+  // gallery: 1-based gallery-dl indices of the items to save, or plain file
+  // URLs found on the page.
+  galleryIndices?: number[];
+  directUrls?: string[];
   quality?: string; // '1080', '720', '480', 'best'
   audioFormat?: 'mp3' | 'original';
   // Exact size of the selected formats from the info call; keeps progress
@@ -3009,6 +3633,146 @@ const getDirectEngineDisqualifiers = (context: {
   return reasons;
 };
 
+// ==================== GALLERY DOWNLOAD ====================
+// Saves the chosen items of a post in one queue entry, so the post is read
+// once instead of once per item (Instagram rate-limits repeated reads).
+const runGalleryDownload = async (
+  opts: DownloadOptions,
+  downloadId: string,
+  downloadsPath: string,
+): Promise<{ id: string; status: string; error?: string }> => {
+  const stagingDir = getStagingDir();
+  await ensureDirectory(stagingDir);
+  const baseTitle = sanitizeFileComponent(cleanMediaTitle(opts.titleOverride || deriveTitleFromUrl(opts.url)) || '') || `media_${Date.now()}`;
+  const indices = [...new Set((opts.galleryIndices || []).map(Number))]
+    .filter((value) => Number.isInteger(value) && value > 0 && value <= 1000)
+    .sort((a, b) => a - b);
+  const directUrls = (opts.directUrls || []).flatMap((value) => {
+    try {
+      return [normalizeHttpUrl(value)];
+    } catch {
+      return [];
+    }
+  }).slice(0, 100);
+  const total = directUrls.length || indices.length || 1;
+  const numbered = (position: number) => (total > 1 ? ` (${position})` : '');
+
+  const sendProgress = (done: number, eta: string) => {
+    const progress = Math.min(99, Math.max(2, (done / total) * 100));
+    const info = activeDownloads.get(downloadId);
+    if (info) info.progress = progress;
+    win?.webContents.send('download-progress', { id: downloadId, progress, eta });
+  };
+
+  const fail = async (error: string) => {
+    activeDownloads.delete(downloadId);
+    await cleanStagedArtifacts(downloadId, stagingDir);
+    win?.webContents.send('download-error', { id: downloadId, error });
+    // Already reported through download-error.
+    return { id: downloadId, status: 'error' };
+  };
+
+  const stoppedStatus = () => {
+    if (intentionallyCanceledIds.has(downloadId)) {
+      intentionallyCanceledIds.delete(downloadId);
+      activeDownloads.delete(downloadId);
+      return { id: downloadId, status: 'canceled' };
+    }
+    if (intentionallyPausedIds.has(downloadId)) {
+      intentionallyPausedIds.delete(downloadId);
+      pausedDownloads.set(downloadId, { options: opts, progress: activeDownloads.get(downloadId)?.progress || 0 });
+      activeDownloads.delete(downloadId);
+      return { id: downloadId, status: 'paused' };
+    }
+    return null;
+  };
+
+  const finish = async () => {
+    try {
+      const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, { includeImages: true });
+      activeDownloads.delete(downloadId);
+      win?.webContents.send('download-progress', { id: downloadId, progress: 99.9, eta: 'finalizing' });
+      win?.webContents.send('download-complete', { id: downloadId, ...file });
+      return { id: downloadId, status: 'completed' };
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : 'Could not save the downloaded files');
+    }
+  };
+
+  sendProgress(0, 'preparing');
+
+  if (directUrls.length > 0) {
+    const aborters: Array<() => void> = [];
+    activeDownloads.set(downloadId, { process: { kill: () => aborters.forEach((abort) => abort()) }, options: opts, progress: 0 });
+    for (const [position, fileUrl] of directUrls.entries()) {
+      const ext = deriveDirectDownloadExtension(fileUrl, 'photo');
+      const outputPath = path.join(stagingDir, `${downloadId}_${baseTitle}${numbered(position + 1)}.${ext}`);
+      const ok = await downloadFile(fileUrl, outputPath, downloadId, null, { Referer: opts.url }, (abort) => aborters.push(abort));
+      const stopped = stoppedStatus();
+      if (stopped) return stopped;
+      if (!ok) return fail('Failed to download image file');
+      sendProgress(position + 1, `${position + 1}/${total}`);
+    }
+    return finish();
+  }
+
+  if (!getGalleryDlPath()) {
+    return fail('gallery-dl is not installed');
+  }
+
+  return new Promise((resolve) => {
+    const proc = spawnGalleryDl([
+      '-D', stagingDir,
+      '-f', `${downloadId}_{filename}.{extension}`,
+      ...(indices.length > 0 ? ['--range', indices.join(',')] : []),
+      ...cookieArgsFor('gallery-dl', opts.url, opts.cookiesFromBrowser),
+      opts.url,
+    ]);
+    activeDownloads.set(downloadId, { process: proc, options: opts, progress: 0 });
+
+    // gallery-dl prints each saved file's path, or "# path" when it already existed.
+    const saved: string[] = [];
+    let pending = '';
+    let errorOutput = '';
+    proc.stdout.on('data', (data) => {
+      pending += data.toString();
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() || '';
+      for (const line of lines) {
+        const filePath = line.replace(/^#\s+/, '').trim();
+        if (filePath && path.basename(filePath).startsWith(`${downloadId}_`)) {
+          saved.push(filePath);
+          sendProgress(saved.length, `${saved.length}/${total}`);
+        }
+      }
+    });
+    proc.stderr.on('data', (data) => { errorOutput += data.toString(); });
+    proc.on('error', async (error) => resolve(await fail(error.message)));
+    proc.on('close', async (code) => {
+      const stopped = stoppedStatus();
+      if (stopped) {
+        resolve(stopped);
+        return;
+      }
+      if (code !== 0 && saved.length === 0) {
+        const message = errorOutput.split(/\r?\n/).filter((line) => /error/i.test(line)).pop() || 'gallery-dl could not download this post';
+        resolve(await fail(message.replace(/^\[[^\]]+\]\[error\]\s*/i, '')));
+        return;
+      }
+      // Name files after the post, numbered by their place in it.
+      for (const [position, filePath] of saved.entries()) {
+        const itemNumber = indices[position] ?? position + 1;
+        const suffix = saved.length > 1 || total > 1 ? ` (${itemNumber})` : '';
+        const target = path.join(stagingDir, `${downloadId}_${baseTitle}${suffix}${path.extname(filePath)}`);
+        if (target !== filePath) {
+          await fsPromises.rename(filePath, target).catch(() => undefined);
+        }
+      }
+      resolve(await finish());
+    });
+  });
+};
+
 ipcMain.handle('start-download', async (_event, options: DownloadOptions | string) => {
   // Support both old string API and new options API
   const opts: DownloadOptions = typeof options === 'string'
@@ -3025,7 +3789,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     };
   }
 
-  if (!['video', 'audio', 'photo'].includes(opts.format)) {
+  if (!['video', 'audio', 'photo', 'gallery'].includes(opts.format)) {
     return { status: 'error', error: 'Unsupported download format' };
   }
 
@@ -3042,6 +3806,10 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     ? opts.id
     : Math.random().toString(36).slice(2, 11);
   const downloadsPath = await resolveDownloadOutputDir(opts.outputDir);
+
+  if (opts.format === 'gallery') {
+    return runGalleryDownload(opts, downloadId, downloadsPath);
+  }
 
   // ==================== PHOTO DOWNLOAD HANDLER ====================
   if (opts.format === 'photo') {

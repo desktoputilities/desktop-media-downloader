@@ -39,7 +39,7 @@
     "dev": "vite",
     "prepare:electron": "install-electron",
     "prepare:yt-dlp": "node scripts/bundle-yt-dlp.mjs",
-    "prepare:deps": "npm run prepare:electron && npm run prepare:yt-dlp",
+    "prepare:deps": "npm run prepare:electron && npm run prepare:yt-dlp && npm run prepare:gallery-dl",
     "postinstall": "npm run prepare:deps",
     "build:app": "tsc && vite build",
     "build": "npm run build:app && electron-builder",
@@ -48,7 +48,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check": "npm test && npm run lint && npm run typecheck",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "prepare:gallery-dl": "node scripts/bundle-gallery-dl.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

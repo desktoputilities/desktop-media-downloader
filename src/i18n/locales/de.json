@@ -30,7 +30,13 @@
         "queuedCount": "Wartend: {{count}}",
         "seeAll": "Alle anzeigen",
         "dropHint": "Link mit Strg+V einfügen oder irgendwo ins Fenster ziehen",
-        "dropToStart": "Link zum Starten ablegen"
+        "dropToStart": "Link zum Starten ablegen",
+        "loginRequired": "Melde dich bei {{site}} an, um diese Medien zu laden.",
+        "fetchBlocked": "Die Seite hat die Anfrage blockiert. Versuche es erneut oder melde dich an.",
+        "fetchFailed": "Auf dieser Seite wurden keine herunterladbaren Medien gefunden.",
+        "signInHere": "Anmelden",
+        "useBrowserCookies": "Browser-Cookies verwenden",
+        "tryAgain": "Erneut versuchen"
     },
     "downloads": {
         "sectionTitle": "Download-Warteschlange",
@@ -71,7 +77,8 @@
         "openSource": "Quellvideo im Browser öffnen",
         "removeFromHistory": "Aus Verlauf entfernen",
         "video": "Video",
-        "photo": "Foto"
+        "photo": "Foto",
+        "fileCount": "{{count}} Dateien"
     },
     "system": {
         "badge": "Systemprüfung",
@@ -170,7 +177,11 @@
         "parallelDownloads": "Parallele Downloads",
         "parallelDownloadsDesc": "Wie viele Downloads gleichzeitig laufen. Der Rest wartet in der Warteschlange.",
         "advancedSection": "Erweitert",
-        "shortcutPaste": "Link einfügen (jede Ansicht)"
+        "shortcutPaste": "Link einfügen (jede Ansicht)",
+        "siteSignIn": "Bei Websites anmelden",
+        "siteSignInDesc": "Für Beiträge, die ein Konto brauchen, ohne die Cookies deines Browsers zu teilen. Die Anmeldung bleibt auf diesem Computer.",
+        "signIn": "Anmelden",
+        "signOut": "Abmelden"
     },
     "setupWizard": {
         "languageStep": "Sprache Wählen",
@@ -253,12 +264,15 @@
         "alreadyDownloaded": "Bereits heruntergeladen: {{details}}",
         "downloadAgain": "Erneut laden",
         "on": "An",
-        "off": "Aus"
+        "off": "Aus",
+        "image": "Bild",
+        "itemsOf": "{{count}} von {{total}}",
+        "selectedOf": "{{count}} von {{total}} ausgewählt",
+        "selectAll": "Alle auswählen",
+        "selectNone": "Keine auswählen"
     },
     "searchModal": {
-        "title": "YouTube Durchsuchen",
-        "directUrlHint": "Für TikTok/Instagram direkte URLs auf der Startseite einfügen",
-        "placeholder": "YouTube-Videos suchen...",
+        "directUrlHint": "TikTok hat keine Stichwortsuche; füge stattdessen einen TikTok-Link auf der Startseite ein.",
         "searchBtn": "Suchen",
         "searching": "Suche läuft...",
         "noResults": "Keine Ergebnisse gefunden.",
@@ -271,7 +285,13 @@
         "views": "Aufrufe",
         "downloadSingle": "Herunterladen",
         "downloadSelected": "Videos Herunterladen",
-        "downloadAudioBtn": "Audio Herunterladen"
+        "downloadAudioBtn": "Audio Herunterladen",
+        "hashtagHint": "Sucht nach einem Hashtag. Anmeldung erforderlich.",
+        "siteSearchHint": "Nutzt die Suche dieser Website. Funktioniert bei manchen Websites.",
+        "needsSignIn": "Anmeldung erforderlich",
+        "openPost": "Medien auswählen",
+        "titleFor": "{{site}} durchsuchen",
+        "placeholderFor": "{{site}} durchsuchen..."
     },
     "playlistModal": {
         "title": "Playlist-Download",

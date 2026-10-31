@@ -30,7 +30,13 @@
         "queuedCount": "В очереди: {{count}}",
         "seeAll": "Показать все",
         "dropHint": "Вставьте ссылку через Ctrl+V или перетащите её в любое место окна",
-        "dropToStart": "Отпустите ссылку, чтобы начать"
+        "dropToStart": "Отпустите ссылку, чтобы начать",
+        "loginRequired": "Войдите в {{site}}, чтобы получить эти медиафайлы.",
+        "fetchBlocked": "Сайт заблокировал запрос. Повторите попытку или войдите.",
+        "fetchFailed": "На этой странице не найдено медиафайлов для загрузки.",
+        "signInHere": "Войти",
+        "useBrowserCookies": "Использовать cookie браузера",
+        "tryAgain": "Повторить"
     },
     "downloads": {
         "sectionTitle": "Очередь загрузок",
@@ -71,7 +77,8 @@
         "openSource": "Открыть исходное видео в браузере",
         "removeFromHistory": "Удалить из истории",
         "video": "Видео",
-        "photo": "Фото"
+        "photo": "Фото",
+        "fileCount": "Файлов: {{count}}"
     },
     "system": {
         "badge": "Проверка системы",
@@ -170,7 +177,11 @@
         "parallelDownloads": "Одновременные загрузки",
         "parallelDownloadsDesc": "Сколько загрузок выполняется одновременно. Остальные ждут в очереди.",
         "advancedSection": "Дополнительно",
-        "shortcutPaste": "Вставить ссылку (на любом экране)"
+        "shortcutPaste": "Вставить ссылку (на любом экране)",
+        "siteSignIn": "Вход на сайты",
+        "siteSignInDesc": "Для публикаций, требующих аккаунта, без передачи cookie браузера. Вход хранится на этом компьютере.",
+        "signIn": "Войти",
+        "signOut": "Выйти"
     },
     "setupWizard": {
         "languageStep": "Выбрать язык",
@@ -253,12 +264,15 @@
         "alreadyDownloaded": "Уже загружено: {{details}}",
         "downloadAgain": "Скачать снова",
         "on": "Вкл",
-        "off": "Выкл"
+        "off": "Выкл",
+        "image": "Изображение",
+        "itemsOf": "{{count}} из {{total}}",
+        "selectedOf": "Выбрано {{count}} из {{total}}",
+        "selectAll": "Выбрать все",
+        "selectNone": "Снять выбор"
     },
     "searchModal": {
-        "title": "Поиск YouTube",
-        "directUrlHint": "Для TikTok/Instagram вставляйте прямые URL на главной странице",
-        "placeholder": "Поиск видео на YouTube...",
+        "directUrlHint": "В TikTok нет поиска по словам; вставьте ссылку TikTok на главной.",
         "searchBtn": "Искать",
         "searching": "Поиск...",
         "noResults": "Результаты не найдены.",
@@ -271,7 +285,13 @@
         "views": "просмотров",
         "downloadSingle": "Скачать",
         "downloadSelected": "Скачать видео",
-        "downloadAudioBtn": "Скачать аудио"
+        "downloadAudioBtn": "Скачать аудио",
+        "hashtagHint": "Ищет по хештегу. Нужен вход.",
+        "siteSearchHint": "Использует поиск самого сайта. Работает на некоторых сайтах.",
+        "needsSignIn": "Нужен вход",
+        "openPost": "Выбрать медиа",
+        "titleFor": "Поиск: {{site}}",
+        "placeholderFor": "Искать на {{site}}..."
     },
     "playlistModal": {
         "title": "Загрузка плейлиста",

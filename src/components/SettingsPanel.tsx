@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, Folder, Download, History, Subtitles, Music2, Tag, Globe, Loader2, CheckCircle, XCircle, Languages, Layers, Zap } from 'lucide-react';
+import { Moon, Sun, Folder, Download, History, Subtitles, Music2, Tag, Globe, Loader2, CheckCircle, XCircle, Languages, Layers, Zap, LogIn, LogOut, KeyRound } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useDownloads } from '../context/DownloadContext';
 import { cn } from '../lib/utils';
@@ -7,6 +7,80 @@ import { useTranslation } from 'react-i18next';
 import { SUPPORTED_LANGUAGES } from '../i18n/i18n';
 
 // Window types are defined in vite-env.d.ts
+
+// Sites whose posts often need an account. Any other site can be signed in to
+// from the prompt Home shows when a link needs it.
+const SIGN_IN_SITES = [
+    { id: 'instagram.com', name: 'Instagram' },
+    { id: 'x.com', name: 'X (Twitter)' },
+    { id: 'tiktok.com', name: 'TikTok' },
+    { id: 'reddit.com', name: 'Reddit' },
+    { id: 'facebook.com', name: 'Facebook' },
+    { id: 'pinterest.com', name: 'Pinterest' },
+    { id: 'threads.com', name: 'Threads' },
+];
+
+const SiteSignIn: React.FC = () => {
+    const { t } = useTranslation();
+    const [site, setSite] = useState(SIGN_IN_SITES[0].id);
+    const [signedIn, setSignedIn] = useState(false);
+    const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        void window.electronAPI?.getSiteLoginStatus?.(site).then((result) => {
+            if (!cancelled) setSignedIn(Boolean(result?.signedIn));
+        });
+        return () => { cancelled = true; };
+    }, [site]);
+
+    const run = async (action: () => Promise<unknown>) => {
+        setBusy(true);
+        try {
+            await action();
+            const status = await window.electronAPI?.getSiteLoginStatus?.(site);
+            setSignedIn(Boolean(status?.signedIn));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="flex items-center gap-2">
+            <select
+                value={site}
+                onChange={(e) => setSite(e.target.value)}
+                className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
+                aria-label={t('settings.siteSignIn')}
+            >
+                {SIGN_IN_SITES.map(option => (
+                    <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+            </select>
+            {signedIn ? (
+                <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void run(() => window.electronAPI!.clearSiteLogin(site))}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-foreground/10 hover:bg-foreground/5 disabled:opacity-60"
+                >
+                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+                    {t('settings.signOut')}
+                </button>
+            ) : (
+                <button
+                    type="button"
+                    disabled={busy || !window.electronAPI?.openSiteLogin}
+                    onClick={() => void run(() => window.electronAPI!.openSiteLogin(site))}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                >
+                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+                    {t('settings.signIn')}
+                </button>
+            )}
+        </div>
+    );
+};
 
 interface SettingsRowProps {
     icon: React.ReactNode;
@@ -489,6 +563,13 @@ const SettingsPanel: React.FC = () => {
                                 {t('settings.cookieUnknown')}
                             </div>
                         )}
+                        <SettingsRow
+                            icon={<KeyRound className="w-4 h-4" />}
+                            title={t('settings.siteSignIn')}
+                            description={t('settings.siteSignInDesc')}
+                        >
+                            <SiteSignIn />
+                        </SettingsRow>
                     </div>
                 </div>
 

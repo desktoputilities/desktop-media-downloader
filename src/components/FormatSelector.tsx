@@ -1,13 +1,15 @@
 import React from 'react';
-import { Video, Music, Image as ImageIcon, FolderOpen, Loader2, ArrowRight, History as HistoryIcon, Gauge, X } from 'lucide-react';
+import { Video, Music, Image as ImageIcon, FolderOpen, Loader2, ArrowRight, History as HistoryIcon, Gauge, X, Check } from 'lucide-react';
 import { cn, formatFileSize } from '../lib/utils';
 import { formatClockTime } from '../lib/videoPreview';
 import { useTranslation } from 'react-i18next';
-import type { AudioFormat, HistoryItem, VideoInfo } from '../context/DownloadContext';
+import type { AudioFormat, DownloadFormat, HistoryItem, MediaItem, VideoInfo } from '../context/DownloadContext';
 
 export interface FormatSelection {
-    format: 'video' | 'audio' | 'photo';
+    format: DownloadFormat;
     quality?: string;
+    galleryIndices?: number[];
+    directUrls?: string[];
     audioFormat?: AudioFormat;
     photoTimestampMode?: 'screenshot' | 'thumbnail';
     outputDir?: string;
@@ -34,6 +36,56 @@ interface FormatPanelProps {
 
 const folderName = (folderPath: string): string => folderPath.split(/[\\/]/).filter(Boolean).pop() || folderPath;
 
+const describeItem = (item: MediaItem): string => [
+    item.width && item.height ? `${item.width} × ${item.height}` : undefined,
+    formatFileSize(item.bytes),
+    item.ext?.toUpperCase(),
+].filter(Boolean).join(' · ');
+
+const MediaTile: React.FC<{ item: MediaItem; selected: boolean; onToggle: () => void }> = ({ item, selected, onToggle }) => {
+    const { t } = useTranslation();
+    const [broken, setBroken] = React.useState(false);
+    const KindIcon = item.kind === 'video' ? Video : item.kind === 'audio' ? Music : ImageIcon;
+    const kindLabel = item.kind === 'video' ? t('formatSelector.video') : item.kind === 'audio' ? t('formatSelector.audio') : t('formatSelector.image');
+    return (
+        <button
+            type="button"
+            role="checkbox"
+            aria-checked={selected}
+            aria-label={`${item.index} · ${kindLabel}`}
+            title={[kindLabel, describeItem(item)].filter(Boolean).join(' · ')}
+            onClick={onToggle}
+            className={cn(
+                'relative aspect-square rounded-xl overflow-hidden border-2 bg-secondary/50 transition-colors',
+                selected ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'
+            )}
+        >
+            {item.thumbnail && !broken ? (
+                <img
+                    src={item.thumbnail}
+                    alt=""
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={() => setBroken(true)}
+                    className="absolute inset-0 w-full h-full object-cover"
+                />
+            ) : (
+                <KindIcon className="absolute inset-0 m-auto w-6 h-6 text-foreground/40" />
+            )}
+            <span className="absolute left-1.5 bottom-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[10px] font-medium">
+                <KindIcon className="w-3 h-3" />
+                {item.index}
+            </span>
+            <span className={cn(
+                'absolute right-1.5 top-1.5 w-5 h-5 rounded-md flex items-center justify-center border',
+                selected ? 'bg-primary border-primary text-primary-foreground' : 'bg-black/40 border-white/60'
+            )}>
+                {selected && <Check className="w-3.5 h-3.5" />}
+            </span>
+        </button>
+    );
+};
+
 // LAME's default VBR level (yt-dlp --audio-quality 5) averages about 130 kbit/s.
 const MP3_ESTIMATE_BITS_PER_SECOND = 130_000;
 
@@ -50,7 +102,33 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
 }, ref) => {
     const { t, i18n } = useTranslation();
     const hasTimestamp = timestampSeconds !== undefined;
+    const mediaKind = videoInfo?.mediaKind;
+    const isAudioOnly = mediaKind === 'audio';
+    // Images and carousels list their items instead of format tabs.
+    const mediaItems = React.useMemo(
+        () => (mediaKind === 'image' || mediaKind === 'gallery' ? videoInfo?.items || [] : []),
+        [mediaKind, videoInfo?.items]
+    );
+    const isMediaList = mediaItems.length > 0;
+    const [selectedItems, setSelectedItems] = React.useState<Set<number>>(new Set());
     const [selectedFormat, setSelectedFormat] = React.useState<'video' | 'audio' | 'photo'>('video');
+
+    // Posts start with everything selected; a profile or feed with nothing.
+    React.useEffect(() => {
+        setSelectedItems(new Set(videoInfo?.isCollection ? [] : mediaItems.map((item) => item.index)));
+    }, [mediaItems, videoInfo?.isCollection]);
+
+    React.useEffect(() => {
+        if (isAudioOnly) setSelectedFormat('audio');
+    }, [isAudioOnly]);
+
+    const toggleItem = (index: number) => setSelectedItems((previous) => {
+        const next = new Set(previous);
+        if (next.has(index)) next.delete(index);
+        else next.add(index);
+        return next;
+    });
+    const allSelected = selectedItems.size === mediaItems.length;
     const [selectedQuality, setSelectedQuality] = React.useState<string>('');
     const [audioFormat, setAudioFormat] = React.useState<AudioFormat>('mp3');
     const [photoMode, setPhotoMode] = React.useState<'screenshot' | 'thumbnail'>(hasTimestamp ? 'screenshot' : 'thumbnail');
@@ -99,17 +177,34 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
     };
 
     const handleDownload = () => {
+        const turboOverride = {
+            enabled: turboEnabled,
+            adaptive: defaultAdaptiveTurbo,
+            connections: defaultTurboConnections,
+        };
+        if (isMediaList) {
+            const chosen = mediaItems.filter((item) => selectedItems.has(item.index));
+            if (chosen.length === 0) return;
+            const allDirect = chosen.every((item) => item.direct);
+            onDownload({
+                format: 'gallery',
+                galleryIndices: allDirect ? undefined : chosen.map((item) => item.index),
+                directUrls: allDirect ? chosen.map((item) => item.url) : undefined,
+                outputDir: customOutputDir || undefined,
+                turboOverride,
+                expectedBytes: chosen.every((item) => item.bytes)
+                    ? chosen.reduce((sum, item) => sum + (item.bytes || 0), 0)
+                    : undefined,
+            });
+            return;
+        }
         onDownload({
             format: selectedFormat,
             quality: selectedFormat === 'video' ? (selectedQuality || undefined) : undefined,
             audioFormat: selectedFormat === 'audio' ? audioFormat : undefined,
             photoTimestampMode: selectedFormat === 'photo' ? photoMode : undefined,
             outputDir: customOutputDir || undefined,
-            turboOverride: {
-                enabled: turboEnabled,
-                adaptive: defaultAdaptiveTurbo,
-                connections: defaultTurboConnections,
-            },
+            turboOverride,
             expectedBytes: expectedBytesFor(),
         });
     };
@@ -129,11 +224,15 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
         }
     };
 
-    const downloadLabel = selectedFormat === 'video'
-        ? (selectedQuality ? `${selectedQuality}p` : t('formatSelector.bestAvailable'))
-        : selectedFormat === 'audio'
-            ? (audioFormat === 'mp3' ? 'MP3' : t('formatSelector.original'))
-            : (photoMode === 'screenshot' ? t('formatSelector.frame') : t('formatSelector.thumbnail'));
+    const downloadLabel = isMediaList
+        ? (mediaItems.length === 1
+            ? (mediaItems[0].kind === 'image' ? t('formatSelector.image') : t('formatSelector.video'))
+            : t('formatSelector.itemsOf', { count: selectedItems.size, total: mediaItems.length }))
+        : selectedFormat === 'video'
+            ? (selectedQuality ? `${selectedQuality}p` : t('formatSelector.bestAvailable'))
+            : selectedFormat === 'audio'
+                ? (audioFormat === 'mp3' ? 'MP3' : t('formatSelector.original'))
+                : (photoMode === 'screenshot' ? t('formatSelector.frame') : t('formatSelector.thumbnail'));
 
     const duplicateLabel = duplicate ? [
         new Date(duplicate.completedAt).toLocaleDateString(i18n.language, { dateStyle: 'medium' }),
@@ -145,7 +244,7 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
         { id: 'video' as const, icon: Video, label: t('formatSelector.video') },
         { id: 'audio' as const, icon: Music, label: t('formatSelector.audio') },
         { id: 'photo' as const, icon: ImageIcon, label: t('formatSelector.photo') },
-    ];
+    ].filter((tab) => !isAudioOnly || tab.id === 'audio');
 
     const chipClass = (selected: boolean, disabled = false) => cn(
         'flex flex-col items-start gap-0.5 px-3 py-2 rounded-xl border text-left transition-colors duration-150',
@@ -159,6 +258,44 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
 
     return (
         <div className="flex flex-col gap-3">
+            {isMediaList && mediaItems.length === 1 && (
+                <div className="flex items-center gap-2 text-xs text-foreground/60">
+                    {mediaItems[0].kind === 'image' ? <ImageIcon className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+                    <span className="font-medium text-foreground">
+                        {mediaItems[0].kind === 'image' ? t('formatSelector.image') : t('formatSelector.video')}
+                    </span>
+                    {describeItem(mediaItems[0]) && <span>{describeItem(mediaItems[0])}</span>}
+                </div>
+            )}
+
+            {isMediaList && mediaItems.length > 1 && (
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between text-xs">
+                        <span className="text-foreground/60">
+                            {t('formatSelector.selectedOf', { count: selectedItems.size, total: mediaItems.length })}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setSelectedItems(new Set(allSelected ? [] : mediaItems.map((item) => item.index)))}
+                            className="text-foreground/60 hover:text-foreground font-medium"
+                        >
+                            {allSelected ? t('formatSelector.selectNone') : t('formatSelector.selectAll')}
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2 max-h-[280px] overflow-y-auto pr-1">
+                        {mediaItems.map((item) => (
+                            <MediaTile
+                                key={item.index}
+                                item={item}
+                                selected={selectedItems.has(item.index)}
+                                onToggle={() => toggleItem(item.index)}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {!isMediaList && (
             <div className="flex items-center gap-1 p-1 rounded-xl bg-secondary/40 w-fit" role="tablist">
                 {tabs.map(({ id, icon: Icon, label }) => (
                     <button
@@ -177,8 +314,9 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
                     </button>
                 ))}
             </div>
+            )}
 
-            {selectedFormat === 'video' && (
+            {!isMediaList && selectedFormat === 'video' && (
                 sortedQualities.length === 0 ? (
                     <div className="text-xs text-foreground/50 flex items-center gap-2 py-3">
                         {isLoadingQualities ? (
@@ -207,7 +345,7 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
                 )
             )}
 
-            {selectedFormat === 'audio' && (
+            {!isMediaList && selectedFormat === 'audio' && (
                 <div className="grid grid-cols-2 gap-2 max-w-sm">
                     <button type="button" onClick={() => setAudioFormat('mp3')} className={chipClass(audioFormat === 'mp3')}>
                         <span className="font-semibold text-sm">MP3</span>
@@ -226,7 +364,7 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
                 </div>
             )}
 
-            {selectedFormat === 'photo' && (
+            {!isMediaList && selectedFormat === 'photo' && (
                 <div className="flex flex-col gap-2">
                     <div className="grid grid-cols-2 gap-2 max-w-sm">
                         <button type="button" onClick={() => setPhotoMode('thumbnail')} className={chipClass(photoMode === 'thumbnail')}>
@@ -288,7 +426,7 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
                             <X className="w-3.5 h-3.5" />
                         </button>
                     )}
-                    <button
+                    {!isMediaList && <button
                         type="button"
                         role="switch"
                         aria-checked={turboEnabled}
@@ -303,12 +441,13 @@ const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
                         aria-label={t('formatSelector.turboDownload')}
                     >
                         <Gauge className="w-4 h-4" />
-                    </button>
+                    </button>}
                 </div>
                 <button
                     type="button"
                     onClick={handleDownload}
-                    className="h-10 px-5 rounded-xl font-medium bg-primary hover:bg-primary/90 text-primary-foreground flex items-center gap-2 shadow-md transition-colors shrink-0"
+                    disabled={isMediaList && selectedItems.size === 0}
+                    className="h-10 px-5 rounded-xl font-medium bg-primary hover:bg-primary/90 text-primary-foreground flex items-center gap-2 shadow-md transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {duplicate ? t('formatSelector.downloadAgain') : t('formatSelector.confirm')} {downloadLabel}
                     <ArrowRight className="w-4 h-4" />

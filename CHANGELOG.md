@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Images, carousels and other media, not just video. Fetching a link detects what it holds: a video shows qualities, an audio-only link shows audio options, a single image shows its size and format, and a post with several items (Instagram, X, TikTok photo posts, Reddit, Bluesky, Pinterest, Imgur, Tumblr, Flickr and more) shows them as a grid to pick from. All items start selected, and the selection downloads as one queue entry.
+- A bundled, checksum-verified gallery-dl reads image posts and galleries that yt-dlp does not.
+- Links that neither engine knows are opened in a hidden, sandboxed window to find the page's main video or image; other videos, thumbnails and ads on the page are left out.
+- Requests a site blocks are retried once with browser impersonation.
+- Sign in to a site inside the app (Settings → Account, or the prompt on Home when a post needs an account) instead of sharing your browser's cookies. The sign-in is kept in its own session on this computer, and the site's cookies are used only for that site.
+- Search covers SoundCloud, Bilibili and Niconico next to YouTube, plus Instagram hashtags and X, Reddit, Bluesky and Pinterest posts. Search opens on the site of the link on Home, and other sites get an experimental "this site" search that uses their own search page.
 - A download queue: at most three downloads run at once by default (Settings → Downloads → Parallel downloads), and the rest show as "Queued". Playlists and multi-select search no longer start every video together.
 - Open file and Show in folder (with the file selected) on finished downloads in Home, Downloads and History.
 - Paste a link with Ctrl+V on any screen, or drop it anywhere in the window, to open its preview on Home.

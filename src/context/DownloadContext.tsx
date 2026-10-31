@@ -13,6 +13,22 @@ import {
 } from './downloadState';
 
 export type AudioFormat = 'mp3' | 'original';
+// 'gallery' saves chosen items of an image post or carousel.
+export type DownloadFormat = 'video' | 'audio' | 'photo' | 'gallery';
+
+export interface MediaItem {
+    // 1-based position in the post.
+    index: number;
+    kind: 'video' | 'audio' | 'image';
+    url: string;
+    ext?: string;
+    width?: number;
+    height?: number;
+    bytes?: number;
+    thumbnail?: string;
+    // A plain file URL; downloaded directly instead of through gallery-dl.
+    direct?: boolean;
+}
 
 export interface DownloadItem {
     id: string;
@@ -25,8 +41,10 @@ export interface DownloadItem {
     speed?: string;
     speedBps?: number;
     eta?: string;
-    format?: 'video' | 'audio' | 'photo';
+    format?: DownloadFormat;
     quality?: string;
+    galleryIndices?: number[];
+    directUrls?: string[];
     outputDir?: string;
     enableTurboDownload?: boolean;
     adaptiveTurboDownload?: boolean;
@@ -41,6 +59,9 @@ export interface DownloadItem {
     fileName?: string;
     fileSize?: number;
     fileExt?: string;
+    // Several files from one post.
+    fileCount?: number;
+    totalBytes?: number;
     error?: string;
     completedAt?: string;
 }
@@ -57,6 +78,8 @@ export interface AddDownloadOptions {
     photoTimestampMode?: 'screenshot' | 'thumbnail';
     audioFormat?: AudioFormat;
     expectedBytes?: number;
+    galleryIndices?: number[];
+    directUrls?: string[];
     // Known metadata (playlists, search, the preview) skips another info call.
     title?: string;
     thumbnail?: string;
@@ -67,12 +90,14 @@ export interface HistoryItem {
     title: string;
     url: string;
     thumbnail?: string;
-    format: 'video' | 'audio' | 'photo';
+    format: DownloadFormat;
     quality?: string;
     filePath?: string;
     fileName?: string;
     fileSize?: number;
     fileExt?: string;
+    fileCount?: number;
+    totalBytes?: number;
     completedAt: string;
 }
 
@@ -97,6 +122,11 @@ export interface VideoInfo {
     extractedUrl?: string;
     extractedSources?: Record<string, string>;
     isPartial?: boolean;
+    // What the link holds; 'image' and 'gallery' come with items instead of qualities.
+    mediaKind?: 'video' | 'audio' | 'image' | 'gallery';
+    items?: MediaItem[];
+    // A profile or feed rather than one post.
+    isCollection?: boolean;
 }
 
 export interface DownloadSettings {
@@ -125,7 +155,7 @@ interface DownloadContextType {
     downloads: DownloadItem[];
     history: HistoryItem[];
     settings: DownloadSettings;
-    addDownload: (url: string, format?: 'video' | 'audio' | 'photo', quality?: string, outputDirOrOptions?: string | AddDownloadOptions) => Promise<void>;
+    addDownload: (url: string, format?: DownloadFormat, quality?: string, outputDirOrOptions?: string | AddDownloadOptions) => Promise<void>;
     removeDownload: (id: string) => void;
     cancelDownload: (id: string) => Promise<void>;
     pauseDownload: (id: string) => Promise<void>;
@@ -139,7 +169,8 @@ interface DownloadContextType {
     clearHistory: () => void;
     removeFromHistory: (id: string) => void;
     updateSettings: (settings: Partial<DownloadSettings>) => void;
-    getVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>;
+    // On failure, errorKind says why ('login', 'blocked', ...) and site names the site to sign in to.
+    getVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string; errorKind?: string; needsLogin?: boolean; site?: string }>;
     getFastVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>;
     // New methods
     searchVideos: (query: string, platform: string, count?: number) => Promise<any>;
@@ -304,6 +335,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             fileName: item.fileName,
             fileSize: item.fileSize,
             fileExt: item.fileExt,
+            fileCount: item.fileCount,
+            totalBytes: item.totalBytes,
             completedAt: new Date().toISOString(),
         };
         // Remove existing entry with same ID before adding new one (update)
@@ -358,7 +391,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
         };
 
-        const handleComplete = ({ id, filePath, fileName, fileSize, fileExt }: { id: string; filePath?: string; fileName?: string; fileSize?: number; fileExt?: string }) => {
+        const handleComplete = ({ id, filePath, fileName, fileSize, fileExt, fileCount, totalBytes }: { id: string; filePath?: string; fileName?: string; fileSize?: number; fileExt?: string; fileCount?: number; totalBytes?: number }) => {
             // Drop queued progress so a late flush cannot overwrite the final state.
             progressQueue.current.delete(id);
             setDownloads(prev => trimCompletedDownloads(prev.map(d => {
@@ -374,6 +407,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     fileName,
                     fileSize,
                     fileExt,
+                    fileCount,
+                    totalBytes,
                     completedAt: new Date().toISOString(),
                 };
                 addToHistory(completedItem);
@@ -484,7 +519,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const addDownload = useCallback(async (
         url: string,
-        format: 'video' | 'audio' | 'photo' = 'video',
+        format: DownloadFormat = 'video',
         quality?: string,
         outputDirOrOptions?: string | AddDownloadOptions
     ) => {
@@ -521,6 +556,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             photoTimestampMode: parsedOptions.photoTimestampMode,
             audioFormat,
             expectedBytes,
+            galleryIndices: parsedOptions.galleryIndices,
+            directUrls: parsedOptions.directUrls,
             cookiesFromBrowser: settings.cookiesFromBrowser,
             embedSubtitles: settings.embedSubtitles,
             subtitleLanguages: settings.subtitleLanguages,
@@ -552,6 +589,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             photoTimestampMode: parsedOptions.photoTimestampMode,
             audioFormat,
             expectedBytes,
+            galleryIndices: parsedOptions.galleryIndices,
+            directUrls: parsedOptions.directUrls,
             fileNameTemplate: settings.fileNameTemplate,
         };
 
@@ -869,7 +908,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const searchVideos = useCallback(async (query: string, platform: string, count: number = 20) => {
         if (window.electronAPI?.searchVideos) {
-            return await window.electronAPI.searchVideos(query, platform, count);
+            return await window.electronAPI.searchVideos(query, platform, count, settings.cookiesFromBrowser || undefined);
         }
         // Mock for browser testing
         return {
@@ -880,7 +919,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 results: []
             }
         };
-    }, []);
+    }, [settings.cookiesFromBrowser]);
 
     const getPlaylistInfo = useCallback(async (url: string) => {
         if (window.electronAPI?.getPlaylistInfo) {

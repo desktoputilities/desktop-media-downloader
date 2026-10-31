@@ -30,6 +30,7 @@ const History: React.FC = () => {
 
     // What was saved: the real container when known, else the requested kind.
     const formatBadge = (item: HistoryItem): string => {
+        if (item.fileCount && item.fileCount > 1) return t('history.fileCount', { count: item.fileCount });
         if (item.fileExt) return item.fileExt.toUpperCase();
         if (item.format === 'audio') return t('formatSelector.audio');
         if (item.format === 'photo') return t('history.photo');

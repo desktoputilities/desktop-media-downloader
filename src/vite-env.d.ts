@@ -6,7 +6,7 @@ interface Window {
         maximize: () => void;
         close: () => void;
         onDownloadProgress: (listener: (payload: { id: string; progress: number; speed?: string; eta?: string; speedBps?: number }) => void) => () => void;
-        onDownloadComplete: (listener: (payload: { id: string; filePath?: string; fileName?: string; fileSize?: number; fileExt?: string }) => void) => () => void;
+        onDownloadComplete: (listener: (payload: { id: string; filePath?: string; fileName?: string; fileSize?: number; fileExt?: string; fileCount?: number; totalBytes?: number }) => void) => () => void;
         onDownloadError: (listener: (payload: { id: string; error: string }) => void) => () => void;
         getVideoInfo: (url: string, cookiesBrowser?: string) => Promise<any>;
         getVideoInfoFast: (url: string) => Promise<any>;
@@ -53,7 +53,7 @@ interface Window {
         // Playlist/Channel functions
         getPlaylistInfo: (url: string) => Promise<any>;
         // Search functions
-        searchVideos: (query: string, platform: string, count: number) => Promise<any>;
+        searchVideos: (query: string, platform: string, count: number, cookiesBrowser?: string) => Promise<any>;
         // Browser cookie functions
         getAvailableBrowsers: () => Promise<any>;
         validateBrowserCookies: (browser: string) => Promise<{
@@ -63,6 +63,10 @@ interface Window {
             browser: string;
             message: string;
         }>;
+        // In-app sign-in
+        openSiteLogin: (site: string) => Promise<{ success: boolean; signedIn?: boolean; error?: string }>;
+        getSiteLoginStatus: (site: string) => Promise<{ signedIn: boolean }>;
+        clearSiteLogin: (site?: string) => Promise<{ success: boolean }>;
         // App info
         getAppInfo: () => Promise<{
             success: boolean;

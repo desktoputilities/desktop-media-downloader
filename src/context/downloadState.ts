@@ -28,6 +28,8 @@ export const buildRestartOptions = (download: DownloadItem, settings: DownloadSe
     photoTimestampMode: download.photoTimestampMode,
     audioFormat: download.audioFormat,
     expectedBytes: download.expectedBytes,
+    galleryIndices: download.galleryIndices,
+    directUrls: download.directUrls,
     outputDir: download.outputDir,
     fileNameTemplate: download.fileNameTemplate ?? settings.fileNameTemplate,
 });

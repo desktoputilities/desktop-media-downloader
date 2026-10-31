@@ -30,7 +30,13 @@
         "queuedCount": "排队中：{{count}}",
         "seeAll": "查看全部",
         "dropHint": "按 Ctrl+V 粘贴链接，或将链接拖放到窗口任意位置",
-        "dropToStart": "松开链接即可开始"
+        "dropToStart": "松开链接即可开始",
+        "loginRequired": "登录 {{site}} 后才能获取此媒体。",
+        "fetchBlocked": "网站拦截了请求。请重试或登录。",
+        "fetchFailed": "此页面上未找到可下载的媒体。",
+        "signInHere": "登录",
+        "useBrowserCookies": "使用浏览器 Cookie",
+        "tryAgain": "重试"
     },
     "downloads": {
         "sectionTitle": "下载队列",
@@ -71,7 +77,8 @@
         "openSource": "在浏览器中打开源视频",
         "removeFromHistory": "从历史中移除",
         "video": "视频",
-        "photo": "照片"
+        "photo": "照片",
+        "fileCount": "{{count}} 个文件"
     },
     "system": {
         "badge": "系统检查",
@@ -170,7 +177,11 @@
         "parallelDownloads": "同时下载数",
         "parallelDownloadsDesc": "同时运行的下载数量，其余的在队列中等待。",
         "advancedSection": "高级",
-        "shortcutPaste": "粘贴链接（任意页面）"
+        "shortcutPaste": "粘贴链接（任意页面）",
+        "siteSignIn": "登录网站",
+        "siteSignInDesc": "用于需要账号的帖子，无需共享浏览器 Cookie。登录信息只保存在这台电脑上。",
+        "signIn": "登录",
+        "signOut": "退出登录"
     },
     "setupWizard": {
         "languageStep": "选择语言",
@@ -253,12 +264,15 @@
         "alreadyDownloaded": "已下载：{{details}}",
         "downloadAgain": "再次下载",
         "on": "开",
-        "off": "关"
+        "off": "关",
+        "image": "图片",
+        "itemsOf": "{{count}}/{{total}}",
+        "selectedOf": "已选择 {{count}}/{{total}}",
+        "selectAll": "全选",
+        "selectNone": "全不选"
     },
     "searchModal": {
-        "title": "搜索YouTube",
-        "directUrlHint": "TikTok/Instagram请在首页直接粘贴URL",
-        "placeholder": "搜索YouTube视频...",
+        "directUrlHint": "TikTok 不支持关键词搜索；请在首页粘贴 TikTok 链接。",
         "searchBtn": "搜索",
         "searching": "搜索中...",
         "noResults": "未找到结果。",
@@ -271,7 +285,13 @@
         "views": "次观看",
         "downloadSingle": "下载",
         "downloadSelected": "下载视频",
-        "downloadAudioBtn": "下载音频"
+        "downloadAudioBtn": "下载音频",
+        "hashtagHint": "搜索话题标签。需要登录。",
+        "siteSearchHint": "使用该网站自身的搜索。部分网站可用。",
+        "needsSignIn": "需要登录",
+        "openPost": "选择媒体",
+        "titleFor": "搜索 {{site}}",
+        "placeholderFor": "在 {{site}} 中搜索..."
     },
     "playlistModal": {
         "title": "播放列表下载",
