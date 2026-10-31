@@ -8,14 +8,14 @@
     "hero": {
         "tag": "Open source / Windows / macOS / Linux",
         "title": "A focused <em>desktop media downloader.</em>",
-        "desc": "Download video, audio, playlists, thumbnails, and timestamp screenshots from YouTube and other yt-dlp-supported sites when you are authorized to save them.",
+        "desc": "Save video, audio, images, and multi-image posts from YouTube, Instagram, X, TikTok, Reddit, Bluesky, and hundreds of other sites when you are authorized to save them.",
         "downloadBtn": "Download",
         "seeFirst": "See the interface"
     },
     "stats": {
         "license": "License",
         "platforms": "Platforms",
-        "backend": "Media engine"
+        "backend": "Media engines"
     },
     "downloads": {
         "label": "Downloads",
@@ -26,39 +26,36 @@
         "windows": "Windows",
         "macos": "macOS",
         "linux": "Linux",
-        "windowsHint": ".exe installer",
-        "macosHint": ".dmg disk image",
-        "linuxHint": ".AppImage portable",
         "downloadBtn": "Download",
         "notInRelease": "Installer pending in the latest release.",
         "releases": "View releases",
-        "couldNotLoad": "Release pending — view GitHub for status"
+        "couldNotLoad": "Release details are unavailable. View GitHub for status."
     },
     "features": {
         "label": "Capabilities",
         "title": "The control you need. Nothing you do not.",
-        "desc": "Analyze links, choose formats, and manage the queue without working in a terminal.",
-        "metadataTitle": "Fast URL previews",
-        "metadataDesc": "See an immediate preview while full metadata and available formats load in the background.",
-        "formatTitle": "Format and quality control",
-        "formatDesc": "Choose video, audio, thumbnails, or timestamp screenshots with clear output options.",
-        "playlistTitle": "Playlist and batch support",
-        "playlistDesc": "Inspect a playlist and select the exact items you want before the queue starts.",
-        "queueTitle": "Reliable queue management",
-        "queueDesc": "Pause, resume, cancel, or retry downloads and keep completed work organized.",
-        "wizardTitle": "Self-contained media engine",
-        "wizardDesc": "The required downloader and JavaScript runtime are bundled and verified. No separate Python or system yt-dlp installation is required.",
-        "historyTitle": "Local history",
-        "historyDesc": "History and preferences stay on your device and can be removed whenever you choose."
+        "desc": "Analyze links, choose formats, and manage downloads without working in a terminal.",
+        "anyMediaTitle": "Any media link",
+        "anyMediaDesc": "Paste a link and the app recognizes what it holds: a video lists its qualities, audio lists its formats, and an image post shows every image to choose from.",
+        "sizesTitle": "Exact sizes before you download",
+        "sizesDesc": "Every option shows its real size and format, from 4K video to original-quality audio.",
+        "searchTitle": "Search across sites",
+        "searchDesc": "Search YouTube, SoundCloud, Bilibili, Niconico, Reddit, Bluesky, and more, then queue several results at once.",
+        "queueTitle": "A dependable queue",
+        "queueDesc": "Downloads run a few at a time with pause, resume, retry, and cancel. Finished files move to History.",
+        "cookiesTitle": "Account-only sites, on your terms",
+        "cookiesDesc": "For sites that need an account, import cookies exported from your own browser profile. Each site's cookies are sent only to that site.",
+        "updatesTitle": "Stays current on its own",
+        "updatesDesc": "The media engines update from their official releases and are verified against published checksums. On Windows and Linux, the app also installs its own updates."
     },
     "screenshots": {
         "label": "Interface",
         "title": "Made to stay out of your way.",
-        "desc": "Actual application captures in its monochrome dark theme.",
-        "homeCaption": "Paste a URL and get a responsive media preview.",
-        "formatCaption": "Choose quality, format, and output type.",
-        "playlistCaption": "Select individual items from a batch.",
-        "queueCaption": "Track progress and recover failed jobs.",
+        "desc": "Captures of version 1.1.0 in its dark theme.",
+        "homeCaption": "Preview a link with every quality and its exact size.",
+        "galleryCaption": "Choose which images to keep from a multi-image post.",
+        "searchCaption": "Search a site and queue several results at once.",
+        "queueCaption": "Follow running and queued downloads in one place.",
         "viewFull": "View full size",
         "openOriginal": "Open original",
         "close": "Close screenshot viewer",
@@ -69,26 +66,26 @@
         "label": "Workflow",
         "title": "From link to file in four steps.",
         "step1Title": "Install",
-        "step1Desc": "Run the installer and confirm the first-run system check.",
+        "step1Desc": "Run the installer. The media engines are ready on first launch.",
         "step2Title": "Paste",
-        "step2Desc": "Add a supported media URL and review the preview.",
+        "step2Desc": "Paste a link from a supported site, or search for one.",
         "step3Title": "Configure",
-        "step3Desc": "Choose output type, quality, and destination.",
+        "step3Desc": "Pick the quality, format, images, and destination.",
         "step4Title": "Download",
-        "step4Desc": "Start the job and manage it from the persistent queue."
+        "step4Desc": "Follow progress in the queue. Finished files appear in History."
     },
     "releaseNotes": {
         "coreTitle": "Self-contained core",
-        "coreDesc": "Electron, a supported Node.js runtime, and a checksum-verified yt-dlp build are included.",
+        "coreDesc": "Electron, a Node.js runtime, and checksum-verified yt-dlp and gallery-dl builds are included.",
         "ffmpegTitle": "FFmpeg is optional",
-        "ffmpegDesc": "Install it for high-quality stream merging, MP3 conversion, metadata, and screenshots.",
+        "ffmpegDesc": "Install it for high-quality stream merging, MP3 conversion, metadata, and frame captures.",
         "unsignedTitle": "Unsigned open-source builds",
-        "unsignedDesc": "Commercial code signing is not currently included, so your operating system may show a warning."
+        "unsignedDesc": "Builds are not commercially code-signed, so your system may show a warning on first install. Later updates install from within the app on Windows and Linux."
     },
     "trust": {
         "label": "System & trust",
         "title": "Know exactly what you are installing.",
-        "desc": "Desktop Media Downloader is open source, requires no app account, and keeps its history and preferences in local application storage.",
+        "desc": "Desktop Media Downloader is open source, requires no app account, and keeps its history, settings, and imported cookies in local application storage.",
         "systemsTitle": "Supported systems",
         "windows": "Windows 10 or newer, x64",
         "macos": "macOS 12 or newer",
@@ -97,8 +94,8 @@
         "responsibleTitle": "Responsible use",
         "responsibleDesc": "Only download media you are authorized to save. The app is not intended to bypass DRM, paywalls, or access controls.",
         "legalLink": "Read the legal notice",
-        "browserTitle": "Optional browser access",
-        "browserDesc": "Browser-cookie access is disabled by default and is used only when you explicitly choose a browser for authenticated media.",
+        "browserTitle": "Optional site cookies",
+        "browserDesc": "No cookies are used unless you import them. Imported cookies stay on your device and are sent only to the site they belong to.",
         "sourceLink": "Review the source"
     },
     "final": {
@@ -106,24 +103,11 @@
         "title": "Ready when your link is."
     },
     "footer": {
-        "releasesText": "All binaries available on",
-        "releasesLink": "GitHub Releases",
+        "releasesLink": "Releases",
         "projectDescription": "Small tools for better desktop workflows.",
         "issues": "Issues",
         "license": "MIT License",
         "copyright": "© 2026 Desktop Utilities Contributors.",
         "warning": "Open-source builds are not currently commercially code-signed. Verify downloads against the official GitHub release."
-    },
-    "modal": {
-        "badge": "download started",
-        "title": "About installer warnings",
-        "body": "Your download has started. Windows and macOS may show a trust warning because Desktop Media Downloader isn't commercially code-signed — that's a signing cost issue, not a safety issue.",
-        "checksTitle": "Quick checks",
-        "check1": "Only use links from this page or official GitHub releases.",
-        "check2": "Compare release tags and commits in the repo.",
-        "check3": "Read the source if you want full confidence.",
-        "viewSource": "View source",
-        "gotIt": "Got it",
-        "close": "Close"
     }
 }

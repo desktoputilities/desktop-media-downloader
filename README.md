@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  An open-source yt-dlp desktop GUI for Windows, macOS, and Linux.
+  An open-source desktop media downloader for Windows, macOS, and Linux.
 </p>
 
 <p align="center">
@@ -19,43 +19,44 @@
   <a href="#development">Development</a>
 </p>
 
-Desktop Media Downloader is an open-source video and audio downloader for Windows, macOS, and Linux. The app provides a focused graphical interface for yt-dlp, with fast URL previews, format controls, playlists, and a persistent download queue—no terminal workflow required.
+Desktop Media Downloader is an open-source media downloader for Windows, macOS, and Linux. It provides a focused graphical interface for yt-dlp and gallery-dl to save video, audio, images, and multi-image posts, with exact file sizes, multi-site search, and a download queue. No terminal workflow is required.
 
 It is a [Desktop Utilities](https://github.com/desktoputilities) project built with Electron, React, and TypeScript. The interface uses a professional monochrome design with native light and dark modes.
 
 ## Features
 
-- URL metadata preview before a download starts
-- Video, audio, thumbnail, and timestamp screenshot workflows
-- Quality and format selection with estimated file sizes
-- Playlist selection, batch downloads, and search
-- Pause, resume, retry, cancel, and persistent download history
-- Optional browser-cookie support for media you can access legitimately
-- Bundled, checksum-verified yt-dlp and an included JavaScript runtime
+- Video, audio, single images, and multi-image posts (Instagram, X, TikTok photo posts, Reddit, Bluesky, Pinterest, and more), with a picker for the items to keep
+- Exact file size and format for every quality before a download starts
+- Search across YouTube, SoundCloud, Bilibili, Niconico, Reddit, Bluesky, Pinterest, Instagram hashtags, and X
+- A download queue with a parallel limit, pause, resume, retry, cancel, and local history
+- Playlist selection and batch downloads
+- Per-site cookie import (cookies.txt or JSON) for sites that need an account; each site's cookies are sent only to that site
+- Bundled, checksum-verified yt-dlp and gallery-dl that update themselves from their official releases
+- In-app updates on Windows and Linux
 - Graceful no-FFmpeg fallback for compatible combined streams
 - Windows, macOS, and Linux installers built by GitHub Actions
 
 ## Supported media sites
 
-The app works with YouTube and other websites supported by its bundled yt-dlp media engine. Site support can change as platforms update, so the application ships a pinned, checksum-verified downloader and checks for newer compatible releases.
+The app works with YouTube and the other websites supported by yt-dlp and gallery-dl. Site support changes as platforms update, so both engines are bundled at pinned, checksum-verified versions and then kept current from their official releases, each download verified against its published checksum.
 
 Only download media you own or are authorized to save. Desktop Media Downloader is not designed to bypass DRM, paywalls, or access controls.
 
 ## Screenshots
 
-| Home and URL preview | Format selector |
+| Link preview and qualities | Multi-image posts |
 | --- | --- |
-| ![Home](docs/screenshots/home-preview.png) | ![Formats](docs/screenshots/format-selector.png) |
+| ![Home](docs/screenshots/home-preview.png) | ![Images](docs/screenshots/media-gallery.png) |
 
-| Playlist selection | Download queue |
+| Search | Download queue |
 | --- | --- |
-| ![Playlist](docs/screenshots/playlist-modal.png) | ![Queue](docs/screenshots/downloads-queue.png) |
+| ![Search](docs/screenshots/site-search.png) | ![Queue](docs/screenshots/downloads-queue.png) |
 
 ## Install
 
 Download the latest `.exe`, `.dmg`, or `.AppImage` from the [download page](https://desktoputilities.github.io/desktop-media-downloader/download/) or [GitHub Releases](https://github.com/desktoputilities/desktop-media-downloader/releases).
 
-The project is open source and is not currently commercially code-signed. Windows SmartScreen or macOS Gatekeeper may therefore display a trust warning. Review the source and download only from the official organization links above.
+The project is open source and is not currently commercially code-signed. Windows SmartScreen or macOS Gatekeeper may therefore display a trust warning on first install. Review the source and download only from the official organization links above. After that, Windows and Linux installs update from within the app (Info → Update); macOS opens the download page.
 
 ## Development
 
@@ -68,7 +69,7 @@ npm ci
 npm run dev
 ```
 
-`npm ci` downloads the matching Electron runtime and the pinned official yt-dlp standalone build, then verifies the downloader checksum. FFmpeg is optional but recommended for merging separate audio/video streams and media conversion. No separate Python or system yt-dlp installation is required.
+`npm ci` downloads the matching Electron runtime and the pinned official yt-dlp and gallery-dl standalone builds, then verifies their checksums. FFmpeg is optional but recommended for merging separate audio/video streams and media conversion. No separate Python or system yt-dlp installation is required.
 
 ### Verification and packaging
 
@@ -84,7 +85,8 @@ npm run build:bundled
 | `npm run check` | Run tests, lint, and TypeScript checks |
 | `npm run build:app` | Compile the renderer, main process, and preload bundles |
 | `npm run build:bundled` | Prepare dependencies and build the platform installer |
-| `npm run prepare:yt-dlp` | Download and checksum-verify the pinned downloader |
+| `npm run prepare:yt-dlp` | Download and checksum-verify the pinned yt-dlp |
+| `npm run prepare:gallery-dl` | Download and checksum-verify the pinned gallery-dl |
 
 See [SYSTEM_REQUIREMENTS.md](SYSTEM_REQUIREMENTS.md) for platform-specific details.
 
@@ -93,8 +95,8 @@ See [SYSTEM_REQUIREMENTS.md](SYSTEM_REQUIREMENTS.md) for platform-specific detai
 1. Set the release version in `package.json`.
 2. Run `npm run check` and `npm run build:bundled` locally.
 3. Push the matching tag, such as `v1.0.0`.
-4. GitHub Actions verifies the tag, tests the project, and creates installers for all supported platforms.
-5. The download page reads the latest assets from the GitHub release.
+4. GitHub Actions verifies the tag, tests the project, and creates installers and update files (`latest*.yml`) for all supported platforms.
+5. The download page and the in-app updater read the latest assets from the GitHub release.
 
 To publish the download page, enable GitHub Pages from the `main` branch and `/docs` folder in repository settings.
 
@@ -105,7 +107,7 @@ To publish the download page, enable GitHub Pages from the `main` branch and `/d
 branding/       Canonical SVG brand sources
 build/icons/    Installer icon sources
 docs/           GitHub Pages download site and screenshots
-electron/       Electron main process, preload, and yt-dlp integration
+electron/       Electron main process, preload, and media engine integration
 public/         Renderer assets
 scripts/        Dependency and release verification helpers
 src/            React renderer

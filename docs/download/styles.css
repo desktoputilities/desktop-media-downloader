@@ -426,6 +426,8 @@ img {
   font-weight: 650;
   letter-spacing: -0.058em;
   line-height: 0.98;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 .hero h1 em {

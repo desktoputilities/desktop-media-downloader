@@ -3,7 +3,7 @@
   xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://desktoputilities.github.io/desktop-media-downloader/download/</loc>
-    <lastmod>2026-10-18</lastmod>
+    <lastmod>2026-10-31</lastmod>
     <image:image>
       <image:loc>https://desktoputilities.github.io/desktop-media-downloader/screenshots/website-download-preview.png</image:loc>
       <image:title>Desktop Media Downloader website</image:title>
@@ -15,9 +15,14 @@
       <image:caption>Desktop interface for previewing media links before downloading.</image:caption>
     </image:image>
     <image:image>
-      <image:loc>https://desktoputilities.github.io/desktop-media-downloader/screenshots/format-selector.png</image:loc>
-      <image:title>Video and audio format selector</image:title>
-      <image:caption>Quality, format, and output controls in Desktop Media Downloader.</image:caption>
+      <image:loc>https://desktoputilities.github.io/desktop-media-downloader/screenshots/media-gallery.png</image:loc>
+      <image:title>Multi-image post picker</image:title>
+      <image:caption>Choosing which images to save from a multi-image post in Desktop Media Downloader.</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://desktoputilities.github.io/desktop-media-downloader/screenshots/site-search.png</image:loc>
+      <image:title>Multi-site media search</image:title>
+      <image:caption>Searching a site and queueing several results in Desktop Media Downloader.</image:caption>
     </image:image>
     <image:image>
       <image:loc>https://desktoputilities.github.io/desktop-media-downloader/screenshots/downloads-queue.png</image:loc>

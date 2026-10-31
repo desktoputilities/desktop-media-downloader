@@ -2,128 +2,112 @@
     "nav": {
         "downloads": "Téléchargements",
         "features": "Fonctionnalités",
-        "screenshots": "Captures d'écran",
-        "source": "Source"
+        "screenshots": "Interface",
+        "source": "Code source"
     },
     "hero": {
-        "tag": "// open-source & multiplateforme",
-        "title": "Une façon plus propre de <em>télécharger des médias.</em>",
-        "desc": "Collez un lien, choisissez un format et laissez Desktop Media Downloader faire le reste. Electron + yt-dlp sous le capot, une file d'attente soignée en surface.",
+        "tag": "Open source / Windows / macOS / Linux",
+        "title": "Un <em>téléchargeur multimédia de bureau</em> ciblé.",
+        "desc": "Enregistrez vidéos, audio, images et publications à plusieurs images depuis YouTube, Instagram, X, TikTok, Reddit, Bluesky et des centaines d'autres sites, lorsque vous y êtes autorisé.",
         "downloadBtn": "Télécharger",
-        "seeFirst": "Voir d'abord"
+        "seeFirst": "Voir l'interface"
     },
     "stats": {
         "license": "Licence",
         "platforms": "Plateformes",
-        "backend": "Moteur"
+        "backend": "Moteurs multimédias"
     },
     "downloads": {
         "label": "Téléchargements",
-        "title": "Télécharger l'installateur",
-        "desc": "Depuis la dernière version GitHub. Choisissez votre OS.",
-        "loading": "chargement…",
-        "yourOS": "→ votre OS",
+        "title": "Choisissez votre programme d'installation.",
+        "desc": "Les versions officielles sont chargées directement depuis la dernière publication GitHub.",
+        "loading": "Vérification de la dernière version…",
+        "yourOS": "Système détecté",
         "windows": "Windows",
         "macos": "macOS",
         "linux": "Linux",
-        "windowsHint": "installateur .exe",
-        "macosHint": "image disque .dmg",
-        "linuxHint": ".AppImage portable",
         "downloadBtn": "Télécharger",
-        "notInRelease": "Absent de la dernière version.",
-        "releases": "Versions",
-        "couldNotLoad": "impossible de charger la version"
+        "notInRelease": "Programme d'installation en attente dans la dernière version.",
+        "releases": "Voir les versions",
+        "couldNotLoad": "Informations de version indisponibles. Consultez GitHub."
     },
     "features": {
         "label": "Fonctionnalités",
-        "title": "Ce qu'il fait",
-        "desc": "Analyse d'URL, choix de format, gestion de file d'attente — pas de terminal nécessaire.",
-        "metadataTitle": "Aperçu des métadonnées",
-        "metadataDesc": "Voyez le titre, la durée et les formats disponibles avant de télécharger.",
-        "formatTitle": "Contrôle format & qualité",
-        "formatDesc": "Choisissez un profil audio ou vidéo — pas de devinettes, pas de re-téléchargements.",
-        "playlistTitle": "Support playlists & lots",
-        "playlistDesc": "Sélectionnez des éléments spécifiques des chaînes et playlists au lieu de tout prendre.",
-        "queueTitle": "Gestion de file d'attente",
-        "queueDesc": "Pause, reprise, nouvelle tentative ou annulation — tout sur un seul écran.",
-        "wizardTitle": "Moteur multimédia autonome",
-        "wizardDesc": "Le téléchargeur et l'environnement JavaScript requis sont inclus et vérifiés. Aucune installation séparée de Python ou d’un yt-dlp système n’est requise.",
-        "historyTitle": "Historique persistant",
-        "historyDesc": "Les téléchargements passés et les préférences sont conservés entre les sessions."
+        "title": "Le contrôle nécessaire. Rien de superflu.",
+        "desc": "Analysez des liens, choisissez des formats et gérez vos téléchargements sans terminal.",
+        "anyMediaTitle": "Tout lien multimédia",
+        "anyMediaDesc": "Collez un lien et l'app reconnaît son contenu : une vidéo affiche ses qualités, un audio ses formats et une publication d'images toutes les images à choisir.",
+        "sizesTitle": "Tailles exactes avant le téléchargement",
+        "sizesDesc": "Chaque option affiche sa taille et son format réels, de la vidéo 4K à l'audio en qualité d'origine.",
+        "searchTitle": "Recherche sur plusieurs sites",
+        "searchDesc": "Cherchez sur YouTube, SoundCloud, Bilibili, Niconico, Reddit, Bluesky et d'autres, puis ajoutez plusieurs résultats à la file d'un coup.",
+        "queueTitle": "Une file d'attente fiable",
+        "queueDesc": "Les téléchargements s'exécutent quelques-uns à la fois, avec pause, reprise, nouvelle tentative et annulation. Les fichiers terminés rejoignent l'Historique.",
+        "cookiesTitle": "Sites avec compte, selon vos conditions",
+        "cookiesDesc": "Pour les sites qui exigent un compte, importez les cookies exportés de votre propre profil de navigateur. Les cookies d'un site ne sont envoyés qu'à ce site.",
+        "updatesTitle": "Toujours à jour",
+        "updatesDesc": "Les moteurs multimédias se mettent à jour depuis leurs versions officielles et sont vérifiés à l'aide des sommes de contrôle publiées. Sous Windows et Linux, l'app installe aussi ses propres mises à jour."
     },
     "screenshots": {
-        "label": "Aperçu",
-        "title": "Ce que vous installez",
-        "desc": "Captures réelles de l'application.",
-        "homeCaption": "Accueil — collez une URL, voyez les métadonnées, téléchargez.",
-        "formatCaption": "Sélecteur de format — choisissez codec, résolution, conteneur.",
-        "playlistCaption": "Sélecteur de playlist — choisissez les éléments d'un lot.",
-        "queueCaption": "File d'attente — progression, pause, nouvelle tentative, tout en un.",
+        "label": "Interface",
+        "title": "Conçue pour ne pas gêner.",
+        "desc": "Captures de la version 1.1.0 dans son thème sombre.",
+        "homeCaption": "Prévisualisez un lien avec toutes ses qualités et sa taille exacte.",
+        "galleryCaption": "Choisissez les images à garder d'une publication à plusieurs images.",
+        "searchCaption": "Cherchez sur un site et ajoutez plusieurs résultats à la file.",
+        "queueCaption": "Suivez les téléchargements en cours et en attente au même endroit.",
         "viewFull": "Voir en taille réelle",
-        "openOriginal": "Ouvrir l’original",
+        "openOriginal": "Ouvrir l'original",
         "close": "Fermer la visionneuse",
         "previous": "Capture précédente",
         "next": "Capture suivante"
     },
     "workflow": {
-        "label": "Flux de travail",
-        "title": "Quatre étapes, du début à la fin",
+        "label": "Processus",
+        "title": "Du lien au fichier en quatre étapes.",
         "step1Title": "Installer",
-        "step1Desc": "Lancez l'installateur, suivez l'assistant de configuration.",
+        "step1Desc": "Lancez le programme d'installation. Les moteurs multimédias sont prêts dès le premier démarrage.",
         "step2Title": "Coller",
-        "step2Desc": "Déposez une URL — métadonnées et formats se chargent automatiquement.",
+        "step2Desc": "Collez un lien d'un site pris en charge ou recherchez-le.",
         "step3Title": "Configurer",
-        "step3Desc": "Définissez le format, la qualité et le dossier de sortie.",
+        "step3Desc": "Choisissez la qualité, le format, les images et la destination.",
         "step4Title": "Télécharger",
-        "step4Desc": "Lancez. Suivez la progression dans la file d'attente."
+        "step4Desc": "Suivez la progression dans la file. Les fichiers terminés apparaissent dans l'Historique."
     },
     "releaseNotes": {
         "coreTitle": "Cœur autonome",
-        "coreDesc": "Electron, un environnement Node.js pris en charge et une version de yt-dlp vérifiée par somme de contrôle sont inclus.",
+        "coreDesc": "Electron, un environnement Node.js et des versions vérifiées de yt-dlp et gallery-dl sont inclus.",
         "ffmpegTitle": "FFmpeg est facultatif",
-        "ffmpegDesc": "Installez-le pour fusionner des flux haute qualité, convertir en MP3, ajouter des métadonnées et créer des captures.",
+        "ffmpegDesc": "Installez-le pour fusionner les flux en haute qualité, convertir en MP3, ajouter des métadonnées et capturer des images.",
         "unsignedTitle": "Versions open source non signées",
-        "unsignedDesc": "La signature commerciale du code n'est pas incluse actuellement ; votre système peut donc afficher un avertissement."
+        "unsignedDesc": "Les versions ne sont pas signées commercialement ; votre système peut donc afficher un avertissement lors de la première installation. Les mises à jour suivantes s'installent depuis l'app sous Windows et Linux."
     },
     "trust": {
         "label": "Système et confiance",
         "title": "Sachez exactement ce que vous installez.",
-        "desc": "Desktop Media Downloader est open source, ne nécessite aucun compte et conserve l'historique et les préférences dans le stockage local de l'application.",
+        "desc": "Desktop Media Downloader est open source, ne demande aucun compte et conserve son historique, ses réglages et les cookies importés dans le stockage local de l'application.",
         "systemsTitle": "Systèmes pris en charge",
-        "windows": "Windows 10 ou version ultérieure, x64",
-        "macos": "macOS 12 ou version ultérieure",
-        "linux": "Une distribution Linux x64 actuelle",
+        "windows": "Windows 10 ou ultérieur, x64",
+        "macos": "macOS 12 ou ultérieur",
+        "linux": "Une distribution Linux x64 récente",
         "requirementsLink": "Lire la configuration requise",
         "responsibleTitle": "Utilisation responsable",
-        "responsibleDesc": "Téléchargez uniquement les médias que vous êtes autorisé à enregistrer. L'application n'est pas destinée à contourner les DRM, les péages ou les contrôles d'accès.",
-        "legalLink": "Lire les mentions légales",
-        "browserTitle": "Accès facultatif au navigateur",
-        "browserDesc": "L'accès aux cookies du navigateur est désactivé par défaut et n'est utilisé que lorsque vous choisissez explicitement un navigateur pour des médias authentifiés.",
-        "sourceLink": "Examiner le code source"
+        "responsibleDesc": "Ne téléchargez que les contenus que vous êtes autorisé à enregistrer. L'app n'est pas conçue pour contourner les DRM, les paywalls ou les contrôles d'accès.",
+        "legalLink": "Lire l'avis juridique",
+        "browserTitle": "Cookies de site facultatifs",
+        "browserDesc": "Aucun cookie n'est utilisé sans import de votre part. Les cookies importés restent sur votre appareil et ne sont envoyés qu'au site concerné.",
+        "sourceLink": "Consulter le code source"
     },
     "final": {
         "eyebrow": "Version 1.1.0",
-        "title": "Prêt dès que votre lien l'est."
+        "title": "Prête dès que votre lien l'est."
     },
     "footer": {
-        "releasesText": "Tous les binaires disponibles sur",
-        "releasesLink": "GitHub Releases",
-        "projectDescription": "De petits outils pour de meilleurs usages du bureau.",
-        "issues": "Problèmes",
+        "releasesLink": "Versions",
+        "projectDescription": "De petits outils pour de meilleurs flux de travail sur ordinateur.",
+        "issues": "Tickets",
         "license": "Licence MIT",
         "copyright": "© 2026 Contributeurs de Desktop Utilities.",
-        "warning": "Un avertissement de signature peut apparaître au premier lancement — l'application est open-source et n'est pas signée commercialement. Sur Windows cliquez sur <strong>Plus d'infos → Exécuter quand même</strong>, sur macOS utilisez <strong>Réglages Système → Ouvrir quand même</strong>."
-    },
-    "modal": {
-        "badge": "téléchargement démarré",
-        "title": "À propos des avertissements d'installation",
-        "body": "Votre téléchargement a commencé. Windows et macOS peuvent afficher un avertissement de confiance car Desktop Media Downloader n'est pas signé commercialement — c'est une question de coût de signature, pas de sécurité.",
-        "checksTitle": "Vérifications rapides",
-        "check1": "N'utilisez que les liens de cette page ou des versions officielles GitHub.",
-        "check2": "Comparez les tags de version et les commits dans le dépôt.",
-        "check3": "Lisez le code source pour une confiance totale.",
-        "viewSource": "Voir le source",
-        "gotIt": "Compris",
-        "close": "Fermer"
+        "warning": "Les versions open source ne sont pas actuellement signées commercialement. Vérifiez les téléchargements avec la publication GitHub officielle."
     }
 }

@@ -11,7 +11,7 @@ Use this checklist before pushing a new release tag.
 ## First-Run Experience
 
 - [ ] Fresh install launches setup wizard.
-- [ ] Bundled `yt-dlp` and JavaScript runtimes pass the system check.
+- [ ] Bundled `yt-dlp`, `gallery-dl`, and JavaScript runtimes pass the system check.
 - [ ] Missing optional FFmpeg support is explained without blocking compatible downloads.
 - [ ] Recheck updates runtime status correctly.
 
@@ -33,7 +33,8 @@ Use this checklist before pushing a new release tag.
 
 - [ ] Update check works from the Info page.
 - [ ] Sidebar Info item shows a badge when an update is available.
-- [ ] Update button opens release page correctly.
+- [ ] Update downloads and installs in the app on Windows and Linux, and opens the download page on macOS.
+- [ ] The release includes `latest.yml`, `latest-mac.yml`, and `latest-linux.yml`.
 
 ## Public Download Page
 
