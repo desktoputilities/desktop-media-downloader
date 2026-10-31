@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { X, Check, Pause, Play, Folder, AlertCircle, Youtube, Globe, Music, RefreshCw, Zap, Copy, ExternalLink, FileVideo, Clock } from 'lucide-react';
 import { cn, formatFileSize } from '../lib/utils';
 import { openFile, showFile } from '../lib/fileActions';
+import { siteNameFromUrl } from '../lib/siteNames';
 import { useTranslation } from 'react-i18next';
 
 export interface DownloadItemData {
@@ -41,19 +42,10 @@ interface DownloadCardProps {
 }
 
 const getSourceIcon = (url: string) => {
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+    if (siteNameFromUrl(url) === 'YouTube') {
         return <Youtube className="w-4 h-4 text-foreground/65" />;
     }
     return <Globe className="w-4 h-4 text-foreground/65" />;
-};
-
-const getSourceLabel = (url: string) => {
-    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube';
-    if (url.includes('vimeo.com')) return 'Vimeo';
-    if (url.includes('tiktok.com')) return 'TikTok';
-    if (url.includes('instagram.com')) return 'Instagram';
-    if (url.includes('twitter.com') || url.includes('x.com')) return 'X';
-    return 'Web';
 };
 
 // Before completion only the request is known, so audio shows "Audio" rather than
@@ -268,7 +260,7 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                         <div className="flex items-center gap-3 mt-1.5">
                             <div className="flex items-center gap-1.5 text-xs text-foreground/60 bg-secondary/60 px-2 py-0.5 rounded-full border border-foreground/10">
                                 {getSourceIcon(item.url)}
-                                <span>{getSourceLabel(item.url)}</span>
+                                <span>{siteNameFromUrl(item.url)}</span>
                             </div>
 
                             {isActive && item.speed && (

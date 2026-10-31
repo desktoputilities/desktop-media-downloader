@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Download cards name the site (SoundCloud, Bluesky, Reddit and others) instead of "Web", and links whose domain merely ends in "x.com" (such as dropbox.com) are no longer labelled X.
+
 ## [1.1.0] - 2026-10-31
 
 ### Added
