@@ -2,6 +2,7 @@ import React from 'react';
 import { Download, FolderOpen, Pause, Play, Trash2, X } from 'lucide-react';
 import { useDownloads } from '../context/DownloadContext';
 import DownloadCard from '../components/DownloadCard';
+import { openFolder } from '../lib/fileActions';
 import { useTranslation } from 'react-i18next';
 
 const Downloads: React.FC = () => {
@@ -15,25 +16,19 @@ const Downloads: React.FC = () => {
         stopAllDownloads,
         resumeAllDownloads,
         boostDownload,
-        clearCompleted,
+        removeDownload,
         retryDownload,
     } = useDownloads();
 
-    const activeDownloads = downloads.filter(d => d.status === 'pending' || d.status === 'downloading' || d.status === 'paused');
-    const completedDownloads = downloads.filter(d => d.status === 'completed' || d.status === 'error');
-    const stoppableCount = downloads.filter(d => d.status === 'downloading').length;
+    // The queue: what is running, waiting or needs attention. Finished files are in History.
+    const activeDownloads = downloads.filter(d => d.status === 'queued' || d.status === 'pending' || d.status === 'downloading' || d.status === 'paused');
+    const failedDownloads = downloads.filter(d => d.status === 'error');
+    const queuedCount = downloads.filter(d => d.status === 'queued').length;
+    const stoppableCount = downloads.filter(d => d.status === 'downloading' || d.status === 'queued').length;
     const resumableCount = downloads.filter(d => d.status === 'paused').length;
-
-    const handleOpenFolder = async (folderPath?: string) => {
-        if (window.electronAPI?.openFolder) {
-            await window.electronAPI.openFolder(folderPath);
-            return;
-        }
-
-        if (window.electronAPI?.openDownloadsFolder) {
-            await window.electronAPI.openDownloadsFolder();
-        }
-    };
+    const handleOpenFolder = openFolder;
+    // Cancel also deletes partial files; fall back to dropping the entry.
+    const clearFailed = () => failedDownloads.forEach(d => { void cancelDownload(d.id).catch(() => removeDownload(d.id)); });
 
     return (
         <div className="page-shell gap-6">
@@ -48,8 +43,9 @@ const Downloads: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <span className="stats-chip">{activeDownloads.length} {t('downloads.active')}</span>
-                        <span className="stats-chip">{completedDownloads.length} {t('downloads.completed')}</span>
+                        <span className="stats-chip">{activeDownloads.length - queuedCount} {t('downloads.active')}</span>
+                        {queuedCount > 0 && <span className="stats-chip">{queuedCount} {t('downloads.queued')}</span>}
+                        {failedDownloads.length > 0 && <span className="stats-chip">{failedDownloads.length} {t('downloads.failed')}</span>}
                     </div>
                 </div>
 
@@ -91,13 +87,13 @@ const Downloads: React.FC = () => {
                             </button>
                         </>
                     )}
-                    {completedDownloads.length > 0 && (
+                    {failedDownloads.length > 0 && (
                         <button
-                            onClick={clearCompleted}
+                            onClick={clearFailed}
                             className="btn-danger"
                         >
                             <Trash2 className="w-4 h-4" />
-                            {t('downloads.clearCompleted')}
+                            {t('downloads.clearFailed')}
                         </button>
                     )}
                 </div>
@@ -125,14 +121,14 @@ const Downloads: React.FC = () => {
                 </div>
             )}
 
-            {/* Completed Downloads */}
-            {completedDownloads.length > 0 && (
+            {/* Failed Downloads */}
+            {failedDownloads.length > 0 && (
                 <div className="surface-card p-5 lg:p-6">
                     <h2 className="text-sm font-semibold text-foreground/60 uppercase tracking-wider mb-4">
-                        {t('downloads.completedSection')}
+                        {t('downloads.failedSection')}
                     </h2>
                     <div className="space-y-3">
-                        {completedDownloads.map(item => (
+                        {failedDownloads.map(item => (
                             <DownloadCard
                                 key={item.id}
                                 item={item}
@@ -146,7 +142,7 @@ const Downloads: React.FC = () => {
             )}
 
             {/* Empty State */}
-            {downloads.length === 0 && (
+            {activeDownloads.length === 0 && failedDownloads.length === 0 && (
                 <div className="surface-card flex-1 flex flex-col items-center justify-center text-center p-8">
                     <div className="p-4 rounded-full bg-secondary/60 mb-4 border border-foreground/10">
                         <Download className="w-8 h-8 text-foreground/35" />

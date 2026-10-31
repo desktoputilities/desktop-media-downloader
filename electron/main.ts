@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, Notification, nativeImage, nativeTheme, net, type OpenDialogOptions } from 'electron'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -7,13 +8,49 @@ import * as fsPromises from 'node:fs/promises'
 import {
   buildVideoFormatSelector,
   classifyDownloadFailure,
+  createProgressAggregator,
   decodeDumpedPages,
+  DEFAULT_CONCURRENT_FRAGMENTS,
+  getNetworkRetryArgs,
   getProgressTemplateArgs,
+  getVideoFormatSortArgs,
+  isStagedTempFile,
   normalizeHttpUrl,
-  parseYtDlpProgress,
+  readProgressRecord,
   spawnYtDlp,
 } from './yt-dlp'
-import { createQuickVideoInfoSeed, getOEmbedEndpoint, parseQuickHtmlMetadata } from './video-info'
+import {
+  createQuickVideoInfoSeed,
+  getOEmbedEndpoint,
+  parseQuickHtmlMetadata,
+  SIZE_LADDER,
+  summarizeAudioDownload,
+  summarizeRequestedDownloads,
+} from './video-info'
+import {
+  classifyEngineError,
+  cleanMediaTitle,
+  mediaKindForUrl,
+  parseGalleryDlJson,
+  parseGallerySearchResults,
+  pickMainMedia,
+  routeForUrl,
+  type GalleryResult,
+  type PostResult,
+  type SniffedMedia,
+} from './media-resolver'
+import { baseDomainOf, parseCookieExport, summarizeCookieSites } from './site-cookies'
+import { autoUpdater } from 'electron-updater'
+import {
+  compareVersions,
+  ENGINES,
+  engineFileName,
+  findChecksum,
+  isEngineCheckDue,
+  normalizeVersion as normalizeEngineVersion,
+  versionFromEngineFile,
+  type EngineId,
+} from './engine-updates'
 
 // The built directory structure
 process.env.APP_ROOT = path.join(__dirname, '..')
@@ -71,7 +108,12 @@ interface DownloadInfo {
   progress: number;
 }
 const activeDownloads = new Map<string, DownloadInfo>();
-const pendingRetryTimers = new Map<string, NodeJS.Timeout>();
+interface PendingRetry {
+  timer: NodeJS.Timeout;
+  options: any;
+  progress: number;
+}
+const pendingRetryTimers = new Map<string, PendingRetry>();
 // Store paused downloads (killed but can be resumed)
 const pausedDownloads = new Map<string, any>();
 // Track intentionally paused downloads (so we don't send error events when killed)
@@ -116,43 +158,459 @@ const getActiveDownloadsPath = async () => {
   return customDownloadPath || getDefaultDownloadsPath();
 };
 
-// Get yt-dlp path - uses bundled or system yt-dlp
-let ytDlpPathCache: string | null = null;
+// ==================== ENGINES ====================
+// yt-dlp and gallery-dl come bundled with the app. Newer versions downloaded
+// by the engine updater live in userData/engines as "<engine>-<version>" files;
+// the newest working copy wins, so an app update with a newer bundle still
+// takes precedence over an older download.
+interface ResolvedEngine {
+  path: string;
+  version: string | null;
+  source: 'updated' | 'bundled' | 'system';
+}
 
-const getYtDlpCandidates = (): string[] => {
-  const exeName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
-  return [
-    path.join(process.resourcesPath, 'bin', exeName),       // Packaged app
-    path.join(process.env.APP_ROOT || '', 'bin', exeName),   // Dev mode
-    'yt-dlp',                                                // System PATH
-  ];
+const resolvedEngines = new Map<EngineId, ResolvedEngine>();
+// When an engine was last found missing; looked up again after a minute.
+const missingEngineCheckedAt = new Map<EngineId, number>();
+
+const getEnginesDir = () => path.join(app.getPath('userData'), 'engines');
+
+const probeEngineVersion = (executable: string): string | null => {
+  try {
+    const probe = spawnSync(executable, ['--version'], { encoding: 'utf-8', windowsHide: true, timeout: 30000 });
+    return probe.status === 0 ? String(probe.stdout || '').trim().split(/\r?\n/)[0] || null : null;
+  } catch {
+    return null;
+  }
 };
 
-const getYtDlpPath = (): string => {
-  if (ytDlpPathCache) return ytDlpPathCache;
+// Updated copies of one engine, newest first.
+const listUpdatedEngines = (engine: EngineId): Array<{ path: string; version: string }> => {
+  try {
+    return fs.readdirSync(getEnginesDir())
+      .map((name) => ({ name, version: versionFromEngineFile(engine, name) }))
+      .filter((entry): entry is { name: string; version: string } => Boolean(entry.version))
+      .sort((a, b) => compareVersions(b.version, a.version))
+      .map((entry) => ({ path: path.join(getEnginesDir(), entry.name), version: entry.version }));
+  } catch {
+    return [];
+  }
+};
 
-  for (const candidate of getYtDlpCandidates()) {
-    try {
-      if (candidate !== 'yt-dlp' && !fs.existsSync(candidate)) {
-        continue;
-      }
+const resolveEngine = (engine: EngineId): ResolvedEngine | null => {
+  const cached = resolvedEngines.get(engine);
+  if (cached) return cached;
+  if (Date.now() - (missingEngineCheckedAt.get(engine) || 0) < 60_000) return null;
 
-      const probe = spawnSync(candidate, ['--version'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-
-      if (probe.status === 0) {
-        ytDlpPathCache = candidate;
-        return candidate;
-      }
-    } catch {
-      // Try next candidate.
+  const exeName = process.platform === 'win32' ? `${engine}.exe` : engine;
+  let bundled: ResolvedEngine | null = null;
+  for (const candidate of [
+    path.join(process.resourcesPath, 'bin', exeName), // Packaged app
+    path.join(process.env.APP_ROOT || '', 'bin', exeName), // Dev mode
+    engine, // System PATH
+  ]) {
+    if (candidate !== engine && !fs.existsSync(candidate)) continue;
+    const version = probeEngineVersion(candidate);
+    if (version) {
+      bundled = { path: candidate, version, source: candidate === engine ? 'system' : 'bundled' };
+      break;
     }
   }
 
-  // Fallback to system PATH even if probe failed (yt-dlp might appear later).
-  return 'yt-dlp';
+  let resolved = bundled;
+  for (const updated of listUpdatedEngines(engine)) {
+    if (bundled && compareVersions(updated.version, bundled.version) <= 0) break;
+    // Use the reported version, not the file name, in case the file was replaced.
+    const version = probeEngineVersion(updated.path);
+    if (version) {
+      resolved = { path: updated.path, version, source: 'updated' };
+      break;
+    }
+  }
+
+  // A missing engine is looked up again later, in case it gets installed.
+  if (resolved) resolvedEngines.set(engine, resolved);
+  else missingEngineCheckedAt.set(engine, Date.now());
+  return resolved;
+};
+
+const getYtDlpPath = (): string => resolveEngine('yt-dlp')?.path || 'yt-dlp';
+
+// gallery-dl reads image posts and carousels (Instagram, X, TikTok photos,
+// Reddit, ...). Null when it is not installed.
+const getGalleryDlPath = (): string | null => resolveEngine('gallery-dl')?.path || null;
+
+// ==================== ENGINE UPDATES ====================
+// Sites change often and break the engines; new engine releases fix that
+// without an app release. Downloads are checked against the release's
+// SHA-256 list and must report the expected version before they are used.
+interface EngineUpdateState {
+  autoUpdate: boolean;
+  lastCheckedAt?: number;
+}
+
+type EngineUpdateResult =
+  | { engine: EngineId; status: 'updated'; from: string | null; to: string }
+  | { engine: EngineId; status: 'current'; version: string | null }
+  | { engine: EngineId; status: 'unavailable' }
+  | { engine: EngineId; status: 'error'; error: string };
+
+const getEngineUpdateStateFile = () => path.join(app.getPath('userData'), 'engine-updates.json');
+
+const readEngineUpdateState = (): EngineUpdateState => {
+  try {
+    const saved = JSON.parse(fs.readFileSync(getEngineUpdateStateFile(), 'utf8'));
+    return { autoUpdate: saved?.autoUpdate !== false, lastCheckedAt: Number(saved?.lastCheckedAt) || undefined };
+  } catch {
+    return { autoUpdate: true };
+  }
+};
+
+const writeEngineUpdateState = (state: EngineUpdateState) => {
+  try {
+    fs.writeFileSync(getEngineUpdateStateFile(), JSON.stringify(state, null, 2));
+  } catch (error) {
+    console.warn('Could not save engine update state:', error);
+  }
+};
+
+const fetchEngineRelease = async (url: string): Promise<Response> => {
+  const response = await net.fetch(url, {
+    headers: { Accept: 'application/json', 'User-Agent': 'DesktopMediaDownloader' },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).host}`);
+  return response;
+};
+
+const updateEngine = async (engine: EngineId): Promise<EngineUpdateResult> => {
+  const spec = ENGINES[engine];
+  const assetName = spec.assetName(process.platform, process.arch);
+  if (!assetName) return { engine, status: 'unavailable' };
+
+  try {
+    const release = await (await fetchEngineRelease(spec.latestReleaseUrl)).json() as {
+      tag_name?: string;
+      assets?: Array<{ name?: string; browser_download_url?: string }>;
+    };
+    const latest = normalizeEngineVersion(release.tag_name);
+    const current = resolveEngine(engine)?.version || null;
+    if (!latest) throw new Error('The release has no version');
+    if (current && compareVersions(latest, current) <= 0) return { engine, status: 'current', version: current };
+
+    const assetUrl = release.assets?.find((asset) => asset.name === assetName)?.browser_download_url;
+    const sumsUrl = release.assets?.find((asset) => asset.name === spec.checksumAsset)?.browser_download_url;
+    if (!assetUrl || !sumsUrl) throw new Error(`The release has no ${assetName} or checksum list`);
+
+    const expectedHash = findChecksum(await (await fetchEngineRelease(sumsUrl)).text(), assetName);
+    if (!expectedHash) throw new Error(`No checksum for ${assetName}`);
+    const data = Buffer.from(await (await fetchEngineRelease(assetUrl)).arrayBuffer());
+    const actualHash = crypto.createHash('sha256').update(data).digest('hex');
+    if (actualHash !== expectedHash) throw new Error('The download does not match its checksum');
+
+    const enginesDir = getEnginesDir();
+    await fsPromises.mkdir(enginesDir, { recursive: true });
+    const target = path.join(enginesDir, engineFileName(engine, latest, process.platform));
+    const temp = `${target}.download`;
+    await fsPromises.writeFile(temp, data, { mode: 0o755 });
+    const reported = probeEngineVersion(temp);
+    if (!reported || compareVersions(reported, latest) !== 0) {
+      await fsPromises.rm(temp, { force: true });
+      throw new Error(`The new ${engine} did not start`);
+    }
+    await fsPromises.rm(target, { force: true });
+    await fsPromises.rename(temp, target);
+
+    resolvedEngines.delete(engine);
+    missingEngineCheckedAt.delete(engine);
+    const inUse = resolveEngine(engine)?.path;
+    // Older downloads are no longer needed; one still running stays until next time.
+    for (const old of listUpdatedEngines(engine)) {
+      if (old.path !== inUse) await fsPromises.rm(old.path, { force: true }).catch(() => undefined);
+    }
+    return { engine, status: 'updated', from: current, to: latest };
+  } catch (error: any) {
+    return { engine, status: 'error', error: error?.message || String(error) };
+  }
+};
+
+let engineUpdateRun: Promise<EngineUpdateResult[]> | null = null;
+
+const updateEngines = (): Promise<EngineUpdateResult[]> => {
+  engineUpdateRun ??= (async () => {
+    try {
+      const results: EngineUpdateResult[] = [];
+      for (const engine of Object.keys(ENGINES) as EngineId[]) results.push(await updateEngine(engine));
+      if (results.some((result) => result.status !== 'error')) {
+        writeEngineUpdateState({ ...readEngineUpdateState(), lastCheckedAt: Date.now() });
+      }
+      return results;
+    } finally {
+      engineUpdateRun = null;
+    }
+  })();
+  return engineUpdateRun;
+};
+
+const getEngineStatus = () => {
+  const state = readEngineUpdateState();
+  return {
+    autoUpdate: state.autoUpdate,
+    lastCheckedAt: state.lastCheckedAt ?? null,
+    updating: Boolean(engineUpdateRun),
+    engines: (Object.keys(ENGINES) as EngineId[]).map((engine) => {
+      const resolved = resolveEngine(engine);
+      return {
+        id: engine,
+        version: resolved?.version ?? null,
+        source: resolved?.source ?? null,
+        updatable: Boolean(ENGINES[engine].assetName(process.platform, process.arch)),
+      };
+    }),
+  };
+};
+
+// Quiet daily check, a little after start so it does not slow the first window.
+const scheduleEngineUpdateChecks = () => {
+  const runIfDue = () => {
+    const state = readEngineUpdateState();
+    if (!state.autoUpdate || !isEngineCheckDue(state.lastCheckedAt)) return;
+    void updateEngines().then((results) => {
+      const updated = results.filter((result) => result.status === 'updated');
+      if (updated.length) console.log('Engines updated:', updated.map((result) => `${result.engine} ${'to' in result ? result.to : ''}`).join(', '));
+      win?.webContents.send('engines-updated', getEngineStatus());
+    });
+  };
+  setTimeout(runIfDue, 15_000);
+  setInterval(runIfDue, 60 * 60 * 1000);
+};
+
+const spawnGalleryDl = (args: string[]) => spawn(getGalleryDlPath() || 'gallery-dl', [
+  '--config-ignore',
+  '--no-input',
+  '--http-timeout', '30',
+  ...args,
+], { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+
+// ==================== IMPORTED SITE COOKIES ====================
+// Cookies imported from the user's browser profiles live in their own
+// persistent session and are exported in Netscape format for both engines.
+// The partition name is kept so existing imports stay.
+const SITE_LOGIN_PARTITION = 'persist:site-login';
+const getSiteCookiesFile = () => path.join(app.getPath('userData'), 'site-cookies.txt');
+
+const exportSiteCookies = async (): Promise<number> => {
+  const { session } = require('electron') as typeof import('electron');
+  const cookies = await session.fromPartition(SITE_LOGIN_PARTITION).cookies.get({});
+  const lines = ['# Netscape HTTP Cookie File', ''];
+  for (const cookie of cookies) {
+    if (!cookie.domain || /[\t\r\n]/.test(`${cookie.name}${cookie.value}`)) continue;
+    const domain = cookie.domain;
+    lines.push([
+      cookie.httpOnly ? `#HttpOnly_${domain}` : domain,
+      domain.startsWith('.') ? 'TRUE' : 'FALSE',
+      cookie.path || '/',
+      cookie.secure ? 'TRUE' : 'FALSE',
+      String(Math.round(cookie.expirationDate || 0)),
+      cookie.name,
+      cookie.value,
+    ].join('\t'));
+  }
+  const filePath = getSiteCookiesFile();
+  if (cookies.length === 0) {
+    await fsPromises.rm(filePath, { force: true });
+  } else {
+    await fsPromises.writeFile(filePath, `${lines.join('\n')}\n`, { encoding: 'utf-8', mode: 0o600 });
+  }
+  return cookies.length;
+};
+
+const siteDomainOf = (value: string): string => {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^(www\.|m\.|mobile\.)/, '');
+  } catch {
+    return '';
+  }
+};
+
+const getStableIdFragment = (value: string) => crypto.createHash('sha1').update(value).digest('hex').slice(0, 16);
+
+// True when imported cookies exist for this link's site.
+const hasSiteLogin = (targetUrl: string): boolean => {
+  const domain = siteDomainOf(targetUrl);
+  if (!domain) return false;
+  try {
+    const text = fs.readFileSync(getSiteCookiesFile(), 'utf-8');
+    const base = baseDomainOf(domain);
+    return text.split('\n').some((line) => {
+      const host = line.replace(/^#HttpOnly_/, '').split('\t')[0]?.replace(/^\./, '');
+      return Boolean(host) && !line.startsWith('# ') && (host === base || host.endsWith(`.${base}`));
+    });
+  } catch {
+    return false;
+  }
+};
+
+// Imported cookies win for their site; otherwise the browser chosen in Settings.
+const cookieArgsFor = (engine: 'yt-dlp' | 'gallery-dl', targetUrl: string, browser?: string): string[] => {
+  if (hasSiteLogin(targetUrl)) {
+    return [engine === 'yt-dlp' ? '--cookies' : '-C', getSiteCookiesFile()];
+  }
+  return browser ? ['--cookies-from-browser', browser] : [];
+};
+
+// Chrome's app-bound encryption makes yt-dlp fail every request with "Failed to
+// decrypt with DPAPI" instead of just going without cookies. Read the browser's
+// cookies once (no URL, so nothing is fetched) and drop a browser that can't be read.
+const COOKIE_BROWSER_PROBE_TTL_MS = 10 * 60 * 1000;
+const cookieBrowserProbes = new Map<string, { checkedAt: number; result: Promise<boolean> }>();
+
+const probeCookieBrowser = (browser: string): Promise<boolean> => new Promise((resolve) => {
+  const outFile = path.join(os.tmpdir(), `dmd-cookie-probe-${crypto.randomUUID()}.txt`);
+  const proc = spawnYtDlp(getYtDlpPath(), ['--cookies-from-browser', browser, '--cookies', outFile]);
+  let stderr = '';
+  const finish = (usable: boolean) => {
+    clearTimeout(timer);
+    fs.rm(outFile, { force: true }, () => resolve(usable));
+  };
+  // A slow read isn't proof of a broken browser; keep it rather than lose a login.
+  const timer = setTimeout(() => { proc.kill(); finish(true); }, 30000);
+  proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
+  proc.on('error', () => finish(true));
+  proc.on('close', (code: number | null) => {
+    if (code !== 0) {
+      console.warn(`[Cookies] Skipping ${browser} cookies, yt-dlp could not read them:`, stderr.trim().split('\n').pop());
+    }
+    finish(code === 0);
+  });
+});
+
+const usableCookieBrowser = async (browser?: string): Promise<string | undefined> => {
+  if (!browser) return undefined;
+  let probe = cookieBrowserProbes.get(browser);
+  if (!probe || Date.now() - probe.checkedAt > COOKIE_BROWSER_PROBE_TTL_MS) {
+    probe = { checkedAt: Date.now(), result: probeCookieBrowser(browser) };
+    cookieBrowserProbes.set(browser, probe);
+  }
+  return (await probe.result) ? browser : undefined;
+};
+
+interface GalleryProbe {
+  result: GalleryResult;
+  error?: string;
+}
+
+const runGalleryDlInfo = (targetUrl: string, cookiesBrowser?: string): Promise<GalleryProbe> => {
+  if (!getGalleryDlPath()) {
+    return Promise.resolve({ result: { items: [], isCollection: false }, error: 'gallery-dl is not installed' });
+  }
+  return new Promise((resolve) => {
+    const proc = spawnGalleryDl([
+      '-j',
+      '--range', '1-100',
+      ...cookieArgsFor('gallery-dl', targetUrl, cookiesBrowser),
+      targetUrl,
+    ]);
+    let output = '';
+    let errorOutput = '';
+    const timer = setTimeout(() => terminateProcessTree(proc), 60000);
+    proc.stdout.on('data', (data) => { output += data.toString(); });
+    proc.stderr.on('data', (data) => { errorOutput += data.toString(); });
+    proc.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ result: { items: [], isCollection: false }, error: error.message });
+    });
+    proc.on('close', () => {
+      clearTimeout(timer);
+      const result = parseGalleryDlJson(output);
+      const error = result.items.length > 0
+        ? undefined
+        : result.error || errorOutput.split(/\r?\n/).filter((line) => /error|warning/i.test(line)).join('\n') || errorOutput || 'No media found';
+      resolve({ result, error });
+    });
+  });
+};
+
+// ==================== PAGE SCAN FALLBACK ====================
+// Last resort for pages neither engine understands: load the page in a hidden,
+// sandboxed window with its own throwaway session, note the media it requests
+// and what it declares, then keep only the page's main media.
+const sniffPageMedia = async (pageUrl: string): Promise<SniffedMedia | undefined> => {
+  const { session } = require('electron') as typeof import('electron');
+  const partition = `page-scan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const scanSession = session.fromPartition(partition);
+  const seen = new Map<string, SniffedMedia>();
+
+  scanSession.webRequest.onHeadersReceived((details, callback) => {
+    const header = (name: string) => {
+      const entry = Object.entries(details.responseHeaders || {}).find(([key]) => key.toLowerCase() === name);
+      return entry?.[1]?.[0];
+    };
+    const kind = mediaKindForUrl(details.url, header('content-type'));
+    // Stream segments are pieces of a manifest, not media of their own.
+    if (kind && /^https?:/i.test(details.url) && !/\.(?:ts|m4s|aac)(?:[?#]|$)|[?&](?:range|bytes)=/i.test(details.url)) {
+      const bytes = Number(header('content-length')) || undefined;
+      seen.set(details.url, { url: details.url, kind, bytes: Math.max(bytes || 0, seen.get(details.url)?.bytes || 0) || undefined });
+    }
+    callback({});
+  });
+
+  const scanWin = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    webPreferences: {
+      partition,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',
+    },
+  });
+  scanWin.webContents.setAudioMuted(true);
+  scanWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  try {
+    await Promise.race([
+      scanWin.loadURL(pageUrl, { userAgent: getBrowserUserAgent() }).catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 20000)),
+    ]);
+    // Give players a moment to request their streams.
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+
+    const declared = await scanWin.webContents.executeJavaScript(`(() => {
+      const abs = (value) => { try { return new URL(value, location.href).href; } catch { return ''; } };
+      const meta = (name) => document.querySelector('meta[property="' + name + '"], meta[name="' + name + '"]')?.content || '';
+      const out = [];
+      for (const name of ['og:video:secure_url', 'og:video:url', 'og:video', 'twitter:player:stream']) {
+        const value = meta(name);
+        if (value) out.push({ url: abs(value), kind: 'video', declared: true });
+      }
+      const ogImage = meta('og:image') || meta('twitter:image');
+      if (ogImage) out.push({ url: abs(ogImage), kind: 'image', declared: true, width: Number(meta('og:image:width')) || undefined, height: Number(meta('og:image:height')) || undefined });
+      for (const video of document.querySelectorAll('video')) {
+        const src = video.currentSrc || video.src || video.querySelector('source')?.src || '';
+        const rect = video.getBoundingClientRect();
+        if (src && !src.startsWith('blob:')) out.push({ url: abs(src), kind: 'video', duration: Number.isFinite(video.duration) ? video.duration : undefined, width: video.videoWidth || undefined, height: video.videoHeight || undefined, visibleArea: rect.width * rect.height });
+      }
+      for (const img of document.images) {
+        const rect = img.getBoundingClientRect();
+        const src = img.currentSrc || img.src;
+        if (src && !src.startsWith('data:')) out.push({ url: abs(src), kind: 'image', width: img.naturalWidth || undefined, height: img.naturalHeight || undefined, visibleArea: rect.width * rect.height });
+      }
+      return out.slice(0, 400);
+    })()`, true).catch(() => []) as SniffedMedia[];
+
+    const merged = new Map(seen);
+    for (const item of declared) {
+      if (!item?.url || !/^https?:/i.test(item.url)) continue;
+      merged.set(item.url, { ...merged.get(item.url), ...item });
+    }
+    return pickMainMedia([...merged.values()]);
+  } finally {
+    scanWin.destroy();
+    void scanSession.clearStorageData().catch(() => undefined);
+  }
 };
 
 let ffmpegAvailable: boolean | null = null;
@@ -173,28 +631,14 @@ const isFfmpegAvailable = (): boolean => {
   return ffmpegAvailable;
 };
 
-const isYtDlpAvailable = (): boolean => {
-  // Resolved path is already probed during getYtDlpPath(); if cache is set it works.
-  const resolved = getYtDlpPath();
-  if (ytDlpPathCache) return true;
-
-  // Cache miss means none of the candidates passed the probe.
-  try {
-    const probe = spawnSync(resolved, ['--version'], {
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    return probe.status === 0;
-  } catch {
-    return false;
-  }
-};
+const isYtDlpAvailable = (): boolean => Boolean(resolveEngine('yt-dlp'));
 
 const getInstallCommandMap = () => {
   if (process.platform === 'win32') {
     return {
       ytDlp: 'winget install yt-dlp.yt-dlp',
       ffmpeg: 'winget install Gyan.FFmpeg',
+      galleryDl: 'pip install -U gallery-dl',
     };
   }
 
@@ -202,12 +646,14 @@ const getInstallCommandMap = () => {
     return {
       ytDlp: 'brew install yt-dlp',
       ffmpeg: 'brew install ffmpeg',
+      galleryDl: 'brew install gallery-dl',
     };
   }
 
   return {
     ytDlp: 'Debian/Ubuntu: sudo apt install -y yt-dlp\nFedora: sudo dnf install -y yt-dlp\nArch: sudo pacman -S --needed yt-dlp',
     ffmpeg: 'Debian/Ubuntu: sudo apt install -y ffmpeg\nFedora: sudo dnf install -y ffmpeg\nArch: sudo pacman -S --needed ffmpeg',
+    galleryDl: 'pip install -U gallery-dl',
   };
 };
 
@@ -296,7 +742,8 @@ const clampTurboConnections = (value?: number): number => {
 const calculateAdaptiveTurboConnections = (requested?: number): number => {
   const requestedConnections = clampTurboConnections(requested);
   const cpuCount = Math.max(2, os.cpus().length || 2);
-  const inFlightDownloads = Math.max(1, activeDownloads.size + 1);
+  // The download being started is already registered in activeDownloads.
+  const inFlightDownloads = Math.max(1, activeDownloads.size);
 
   // Keep per-download concurrency conservative as parallel downloads increase.
   const perDownloadShare = Math.max(2, Math.ceil(requestedConnections / inFlightDownloads));
@@ -306,12 +753,28 @@ const calculateAdaptiveTurboConnections = (requested?: number): number => {
 };
 
 const clearPendingRetryTimer = (downloadId: string) => {
-  const retryTimer = pendingRetryTimers.get(downloadId);
-  if (retryTimer) {
-    clearTimeout(retryTimer);
+  const pendingRetry = pendingRetryTimers.get(downloadId);
+  if (pendingRetry) {
+    clearTimeout(pendingRetry.timer);
     pendingRetryTimers.delete(downloadId);
   }
 };
+
+// Resolves once the process has released its files. Placeholder and direct-engine
+// entries have no process to wait for. The timeout stops a stuck process from
+// blocking pause or cancel.
+const waitForProcessClose = (proc: any, timeoutMs = 5000): Promise<void> => new Promise((resolve) => {
+  if (typeof proc?.once !== 'function') {
+    resolve();
+    return;
+  }
+
+  const timer = setTimeout(resolve, timeoutMs);
+  proc.once('close', () => {
+    clearTimeout(timer);
+    resolve();
+  });
+});
 
 const terminateProcessTree = (proc: any) => {
   const pid = Number(proc?.pid);
@@ -1532,6 +1995,24 @@ const scoreDownloadSourceCandidate = (
 
 const getStagingDir = () => path.join(app.getPath('temp'), 'desktop-media-downloader-staging');
 
+const AUDIO_FORMAT_SELECTOR = 'bestaudio/best';
+
+// Mirrors overall progress of running downloads on the Windows taskbar and
+// macOS dock. Checked on a timer so every engine and exit path is covered.
+let taskbarProgressShown = false;
+const updateTaskbarProgress = () => {
+  if (!win || win.isDestroyed()) return;
+  const running = [...activeDownloads.values()];
+  if (running.length === 0) {
+    if (taskbarProgressShown) win.setProgressBar(-1);
+    taskbarProgressShown = false;
+    return;
+  }
+  const average = running.reduce((total, item) => total + (Number(item.progress) || 0), 0) / running.length;
+  win.setProgressBar(Math.max(0.01, Math.min(1, average / 100)));
+  taskbarProgressShown = true;
+};
+
 const ensureDirectory = async (dirPath: string) => {
   await fsPromises.mkdir(dirPath, { recursive: true });
 };
@@ -1582,12 +2063,53 @@ const uniqueDestinationPath = async (baseDir: string, fileName: string) => {
   }
 };
 
+interface FinalizedFile {
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  fileExt: string;
+  // Set when one download saved several files (a carousel).
+  fileCount?: number;
+  totalBytes?: number;
+}
+
+const describeFile = async (filePath: string): Promise<Partial<FinalizedFile>> => {
+  try {
+    const { size } = await fsPromises.stat(filePath);
+    return {
+      filePath,
+      fileName: path.basename(filePath),
+      fileSize: size,
+      fileExt: path.extname(filePath).replace('.', '').toLowerCase(),
+    };
+  } catch {
+    return {};
+  }
+};
+
+// Finished files the renderer may open. Executables, scripts and documents are
+// excluded so a compromised page cannot launch arbitrary files.
+const OPENABLE_MEDIA_EXTENSIONS = new Set([
+  'mp4', 'mkv', 'webm', 'mov', 'avi', 'flv', 'm4v', 'ts',
+  'm4a', 'mp3', 'opus', 'ogg', 'oga', 'wav', 'flac', 'aac', 'weba',
+  'jpg', 'jpeg', 'png', 'webp', 'avif', 'gif',
+]);
+
+const resolveOpenableMediaPath = (rawPath: unknown): string | null => {
+  if (typeof rawPath !== 'string' || !path.isAbsolute(rawPath)) return null;
+  const resolved = path.resolve(rawPath);
+  const ext = path.extname(resolved).replace('.', '').toLowerCase();
+  if (!OPENABLE_MEDIA_EXTENSIONS.has(ext)) return null;
+  return fs.existsSync(resolved) ? resolved : null;
+};
+
+// Returns the largest moved file, which is the media rather than a sidecar.
 const finalizeStagedDownload = async (
   downloadId: string,
   stagingDir: string,
   downloadsDir: string,
   options?: { includeImages?: boolean }
-) => {
+): Promise<FinalizedFile> => {
   await ensureDirectory(stagingDir);
   const prefix = `${downloadId}_`;
   const names = await fsPromises.readdir(stagingDir);
@@ -1597,13 +2119,12 @@ const finalizeStagedDownload = async (
   // Move only completed artifacts; skip temp/partial metadata files.
   const completed = names.filter((name) => {
     if (!name.startsWith(prefix)) return false;
-    const lower = name.toLowerCase();
-    if (lower.includes('.part') || lower.endsWith('.ytdl') || lower.endsWith('.temp') || lower.endsWith('.tmp')) {
+    if (isStagedTempFile(name)) {
       return false;
     }
 
     // Keep thumbnail sidecars transient in staging; embedding is done by yt-dlp/ffmpeg.
-    const ext = path.extname(lower);
+    const ext = path.extname(name.toLowerCase());
     if (!options?.includeImages && sidecarImageExts.has(ext)) {
       return false;
     }
@@ -1612,18 +2133,32 @@ const finalizeStagedDownload = async (
   });
 
   if (completed.length === 0) {
-    return;
+    throw new Error('Download finished but no output file was found');
   }
 
-  await Promise.all(completed.map(async (name) => {
+  const moved = await Promise.all(completed.map(async (name) => {
     const sourcePath = path.join(stagingDir, name);
     const outputName = name.substring(prefix.length) || name;
     const destinationPath = await uniqueDestinationPath(downloadsDir, outputName);
+    const { size } = await fsPromises.stat(sourcePath);
     await moveFileWithFallback(sourcePath, destinationPath);
+    return { destinationPath, size };
   }));
 
   // Remove leftovers for this download after moving final artifacts.
   await cleanStagedArtifacts(downloadId, stagingDir);
+
+  const primary = moved.reduce((largest, file) => (file.size > largest.size ? file : largest));
+  return {
+    filePath: primary.destinationPath,
+    fileName: path.basename(primary.destinationPath),
+    fileSize: primary.size,
+    fileExt: path.extname(primary.destinationPath).replace('.', '').toLowerCase(),
+    ...(moved.length > 1 ? {
+      fileCount: moved.length,
+      totalBytes: moved.reduce((sum, file) => sum + file.size, 0),
+    } : {}),
+  };
 };
 
 function createWindow() {
@@ -1838,19 +2373,34 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Invalid media request' };
   }
+  cookiesBrowser = await usableCookieBrowser(cookiesBrowser);
 
   return new Promise(async (resolve) => {
-    // Initial standard yt-dlp call
-    const runYtDlp = (targetUrl: string, referer?: string): Promise<any> => {
+    // Initial standard yt-dlp call. With resolveSizes, yt-dlp also runs the
+    // download's own format selection for each SIZE_LADDER height, which
+    // gives real per-quality sizes in requested_downloads.
+    // impersonate sends a real browser's TLS fingerprint, which gets past many
+    // 403 and Cloudflare checks; it sets its own user agent.
+    const runYtDlp = (targetUrl: string, referer?: string, resolveSizes = false, impersonate = false): Promise<any> => {
       return new Promise((resolveInner) => {
         const args = [
           '--no-playlist',
           '--dump-single-json',
           '--no-warnings',
-          '--user-agent', getBrowserUserAgent(),
+          ...(impersonate ? ['--impersonate', 'chrome'] : ['--user-agent', getBrowserUserAgent()]),
         ];
+        if (resolveSizes) {
+          const ffmpegReady = isFfmpegAvailable();
+          const selectors = SIZE_LADDER.map((height) => buildVideoFormatSelector({
+            quality: String(height),
+            ffmpegAvailable: ffmpegReady,
+          }));
+          // Same selector as audio downloads, for the "Original" audio size.
+          selectors.push(AUDIO_FORMAT_SELECTOR);
+          args.push('-f', selectors.join(','), ...getVideoFormatSortArgs());
+        }
         if (referer) args.push('--referer', referer);
-        if (cookiesBrowser) args.push('--cookies-from-browser', cookiesBrowser);
+        args.push(...cookieArgsFor('yt-dlp', referer || targetUrl, cookiesBrowser));
         args.push(targetUrl);
 
         const ytdlp = spawnYtDlp(getYtDlpPath(), args);
@@ -1890,6 +2440,30 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
           }
         });
       });
+    };
+
+    // Image posts and carousels: the panel lists the items instead of qualities.
+    const galleryInfoResponse = (gallery: GalleryResult) => {
+      const items = gallery.items;
+      const firstImage = items.find((item) => item.kind === 'image');
+      const host = siteDomainOf(url);
+      return {
+        success: true,
+        data: {
+          id: `media_${getStableIdFragment(url)}`,
+          title: cleanMediaTitle(gallery.title || deriveTitleFromUrl(url)) || host,
+          thumbnail: firstImage?.thumbnail || items.find((item) => item.thumbnail)?.thumbnail,
+          duration: 0,
+          uploader: gallery.uploader,
+          webpage_url: url,
+          extractor: gallery.category || host,
+          videoQualities: [],
+          hasAudio: items.some((item) => item.kind !== 'image'),
+          mediaKind: items.length === 1 && items[0].kind === 'image' ? 'image' : 'gallery',
+          items,
+          isCollection: gallery.isCollection,
+        },
+      };
     };
 
     // Helper to process formats and resolving the final promise
@@ -1954,9 +2528,10 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
         };
       }) || [];
 
-      // Get unique video qualities
+      // Get unique video qualities. Storyboard image sheets have a height but
+      // vcodec 'none'; they are not downloadable video.
       const videoQualities: number[] = [...new Set(formats
-        .filter((f: any) => f.height && (f.vcodec !== 'none' || f.height > 0))
+        .filter((f: any) => f.height && f.vcodec !== 'none')
         .map((f: any) => f.height)
       )].map((v: any) => Number(v)).filter((v: number) => Number.isFinite(v)).sort((a, b) => b - a);
 
@@ -1989,6 +2564,37 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
         }
       });
 
+      const qualityDetails = summarizeRequestedDownloads(info.requested_downloads, videoQualities);
+      for (const [key, detail] of Object.entries(qualityDetails)) {
+        qualitySizeMap[key] = detail.bytes;
+      }
+
+      // yt-dlp also returns plain image files (a direct .jpg, some image hosts).
+      const fileUrl = typeof info.url === 'string' ? info.url : formats[0]?.url;
+      const isImage = videoQualities.length === 0
+        && (mediaKindForUrl(`file.${String(info.ext || '')}`) === 'image' || (fileUrl && mediaKindForUrl(fileUrl) === 'image'));
+      if (isImage && fileUrl) {
+        resolve(galleryInfoResponse({
+          items: [{
+            index: 1,
+            kind: 'image',
+            url: fileUrl,
+            ext: info.ext,
+            width: Number(info.width) || undefined,
+            height: Number(info.height) || undefined,
+            bytes: Number(info.filesize || info.filesize_approx) || undefined,
+            thumbnail: fileUrl,
+            direct: true,
+          }],
+          title: info.title,
+          uploader: info.uploader,
+          category: info.extractor_key || info.extractor,
+          isCollection: false,
+        }));
+        return;
+      }
+      const hasAudioStream = formats.some((f: any) => f.acodec && f.acodec !== 'none');
+
       resolve({
         success: true,
         data: {
@@ -2004,7 +2610,12 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
           extractor: info.extractor_key || info.extractor,
           videoQualities,
           videoQualitySizes: qualitySizeMap,
-          hasAudio: formats.some((f: any) => f.acodec && f.acodec !== 'none'),
+          videoQualityDetails: qualityDetails,
+          audioDetail: summarizeAudioDownload(info.requested_downloads),
+          hasAudio: hasAudioStream,
+          mediaKind: videoQualities.length === 0 && hasAudioStream && formats.every((f: any) => f.vcodec === 'none')
+            ? 'audio'
+            : 'video',
           // Pass through HTML-extracted direct sources when available
           ...(info._directExtractedSources ? {
             extractedSources: info._directExtractedSources,
@@ -2014,8 +2625,52 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
       });
     };
 
-    // 1) Standard extraction via yt-dlp extractor.
-    let result: any = await runYtDlp(url);
+    // 0) Posts that are usually images (Instagram posts, X posts, TikTok photo
+    // posts, Reddit, ...) go to gallery-dl first. A post with one video still
+    // goes through yt-dlp below so the panel can offer qualities.
+    const route = routeForUrl(url);
+    let gallery: GalleryProbe | undefined;
+    const errors: string[] = [];
+    if (route === 'gallery' && getGalleryDlPath()) {
+      gallery = await runGalleryDlInfo(url, cookiesBrowser);
+      const items = gallery.result.items;
+      if (items.length > 1 || (items.length === 1 && items[0].kind !== 'video')) {
+        resolve(galleryInfoResponse(gallery.result));
+        return;
+      }
+      if (gallery.error) errors.push(gallery.error);
+    }
+
+    // 1) Standard extraction via yt-dlp extractor. If the size selectors are what
+    // failed, retry plainly so sizes never cost a working preview. A blocked
+    // request is retried once with browser impersonation.
+    let result: any = await runYtDlp(url, undefined, true);
+    if (!result.success && /requested format/i.test(String(result.error))) {
+      result = await runYtDlp(url);
+    }
+    if (!result.success && classifyEngineError(result.error) === 'blocked') {
+      const impersonated = await runYtDlp(url, undefined, true, true);
+      if (impersonated.success || !/impersonat/i.test(String(impersonated.error))) result = impersonated;
+    }
+
+    if (!result.success) {
+      errors.push(String(result.error || ''));
+      // The single video gallery-dl found is still downloadable through it.
+      if (gallery?.result.items.length) {
+        resolve(galleryInfoResponse(gallery.result));
+        return;
+      }
+      // yt-dlp has no image support, so a "no video" post may be photos.
+      const kind = classifyEngineError(result.error);
+      if (!gallery && (kind === 'no-media' || kind === 'unsupported') && getGalleryDlPath()) {
+        gallery = await runGalleryDlInfo(url, cookiesBrowser);
+        if (gallery.result.items.length > 0 && !gallery.result.isCollection) {
+          resolve(galleryInfoResponse(gallery.result));
+          return;
+        }
+        if (gallery.error) errors.push(gallery.error);
+      }
+    }
     const initialTitle = result.success ? result.data?.title : undefined;
 
     const weakGenericSuccess = result.success && (
@@ -2122,10 +2777,175 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
       }
 
       processAndResolve(result.data);
-    } else {
-      resolve(result);
+      return;
     }
+
+    // 5) Last resort: open the page in a hidden window and take its main media.
+    // Login walls are skipped: the page would only show the sign-in form.
+    // Only when no engine knows the page or it was blocked: on a known site
+    // whose video is gone, the scan would just find its thumbnail.
+    const errorKinds = errors.map((message) => classifyEngineError(message));
+    const loginNeeded = errorKinds.includes('login');
+    const worthScanning = errorKinds.some((kind) => kind === 'unsupported' || kind === 'blocked' || kind === 'no-media');
+    if (!loginNeeded && worthScanning && /^https?:\/\//i.test(url)) {
+      const main = await sniffPageMedia(url).catch((error) => {
+        console.warn('[get-video-info] Page scan failed:', error);
+        return undefined;
+      });
+      if (main?.kind === 'image') {
+        resolve(galleryInfoResponse({
+          items: [{ index: 1, kind: 'image', url: main.url, width: main.width, height: main.height, bytes: main.bytes, thumbnail: main.url, direct: true }],
+          title: deriveTitleFromUrl(url),
+          isCollection: false,
+        }));
+        return;
+      }
+      if (main) {
+        const directResult = await runYtDlp(main.url, url);
+        if (directResult.success) {
+          directResult.data.webpage_url = url;
+          if (isGenericStreamTitle(directResult.data.title)) {
+            directResult.data.title = deriveTitleFromUrl(url) || directResult.data.title;
+          }
+          processAndResolve(directResult.data);
+          return;
+        }
+        resolve({
+          success: true,
+          data: {
+            id: `direct_${Date.now()}`,
+            title: deriveTitleFromUrl(url) || 'Direct media source',
+            duration: 0,
+            uploader: siteDomainOf(url),
+            webpage_url: url,
+            extractor: 'html-direct',
+            videoQualities: [],
+            hasAudio: true,
+            mediaKind: main.kind,
+            extractedUrl: main.url,
+            extractedSources: {},
+          },
+        });
+        return;
+      }
+    }
+
+    const errorKind = loginNeeded ? 'login' : errorKinds.find((kind) => kind !== 'other') || 'other';
+    // Imported cookies were sent and the site still wants a login: they have expired.
+    const cookiesExpired = errorKind === 'login' && hasSiteLogin(url);
+    resolve({ ...result, errorKind, needsLogin: errorKind === 'login', cookiesExpired, site: siteDomainOf(url) });
   });
+});
+
+// ==================== SITE COOKIES ====================
+const normalizeSiteDomain = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const domain = (siteDomainOf(value) || value.trim().toLowerCase()).replace(/^(www\.|m\.|mobile\.)/, '');
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(domain) ? domain : null;
+};
+
+// Signs out of one site (its cookies only) or of every site.
+ipcMain.handle('site-login-clear', async (_event, site?: string) => {
+  const { session } = require('electron') as typeof import('electron');
+  const loginSession = session.fromPartition(SITE_LOGIN_PARTITION);
+  const domain = normalizeSiteDomain(site);
+  if (domain) {
+    const base = baseDomainOf(domain);
+    const cookies = await loginSession.cookies.get({});
+    await Promise.all(cookies
+      .filter((cookie) => {
+        const host = (cookie.domain || '').replace(/^\./, '');
+        return host === base || host.endsWith(`.${base}`);
+      })
+      .map((cookie) => loginSession.cookies.remove(
+        `http${cookie.secure ? 's' : ''}://${(cookie.domain || '').replace(/^\./, '')}${cookie.path || '/'}`,
+        cookie.name,
+      ).catch(() => undefined)));
+  } else {
+    await loginSession.clearStorageData();
+  }
+  await exportSiteCookies();
+  return { success: true };
+});
+
+// Session cookies would be dropped when the app restarts; keep them for a month.
+const IMPORTED_SESSION_COOKIE_SECONDS = 30 * 24 * 60 * 60;
+const MAX_COOKIE_IMPORT_BYTES = 5 * 1024 * 1024;
+
+// Loads a cookies.txt or JSON export from the user's browser into the
+// imported-cookie session. Each site in the file replaces that site's earlier cookies,
+// so exporting each Chrome profile separately works.
+ipcMain.handle('site-cookies-import', async (_event, content?: string) => {
+  let text = typeof content === 'string' ? content : '';
+  if (!text) {
+    const options: OpenDialogOptions = {
+      title: 'Import cookies',
+      properties: ['openFile'],
+      filters: [{ name: 'Cookies', extensions: ['txt', 'json'] }, { name: 'All files', extensions: ['*'] }],
+    };
+    const picked = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    if (picked.canceled || !picked.filePaths[0]) return { success: false, canceled: true };
+    const { size } = await fsPromises.stat(picked.filePaths[0]);
+    if (size > MAX_COOKIE_IMPORT_BYTES) return { success: false, error: 'File is too large' };
+    text = await fsPromises.readFile(picked.filePaths[0], 'utf-8');
+  }
+  if (text.length > MAX_COOKIE_IMPORT_BYTES) return { success: false, error: 'File is too large' };
+
+  const cookies = parseCookieExport(text);
+  if (cookies.length === 0) return { success: false, error: 'No cookies found in this file' };
+
+  const { session } = require('electron') as typeof import('electron');
+  const loginSession = session.fromPartition(SITE_LOGIN_PARTITION);
+  const sites = summarizeCookieSites(cookies);
+  const siteSet = new Set(sites.map((entry) => entry.site));
+
+  const existing = await loginSession.cookies.get({});
+  await Promise.all(existing
+    .filter((cookie) => siteSet.has(baseDomainOf(cookie.domain || '')))
+    .map((cookie) => loginSession.cookies.remove(
+      `http${cookie.secure ? 's' : ''}://${(cookie.domain || '').replace(/^\./, '')}${cookie.path || '/'}`,
+      cookie.name,
+    ).catch(() => undefined)));
+
+  const now = Math.round(Date.now() / 1000);
+  let imported = 0;
+  for (const cookie of cookies) {
+    const host = cookie.domain.replace(/^\./, '');
+    try {
+      await loginSession.cookies.set({
+        url: `https://${host}${cookie.path.startsWith('/') ? cookie.path : `/${cookie.path}`}`,
+        name: cookie.name,
+        value: cookie.value,
+        // Host-only and __Host- cookies must not carry a domain attribute.
+        ...(cookie.hostOnly || cookie.name.startsWith('__Host-') ? {} : { domain: cookie.domain }),
+        path: cookie.path,
+        secure: cookie.secure || cookie.name.startsWith('__Secure-') || cookie.name.startsWith('__Host-'),
+        httpOnly: cookie.httpOnly,
+        expirationDate: cookie.expires ?? now + IMPORTED_SESSION_COOKIE_SECONDS,
+      });
+      imported += 1;
+    } catch {
+      // Skip cookies Chromium rejects (for example invalid SameSite combinations).
+    }
+  }
+  await exportSiteCookies();
+  return { success: imported > 0, imported, sites: sites.map((entry) => entry.site), ...(imported === 0 ? { error: 'No cookies could be imported' } : {}) };
+});
+
+// Sites with imported cookies.
+ipcMain.handle('site-login-list', async () => {
+  try {
+    const text = await fsPromises.readFile(getSiteCookiesFile(), 'utf-8');
+    const sites = new Set<string>();
+    for (const line of text.split('\n')) {
+      if (!line.trim() || line.startsWith('# ')) continue;
+      const host = line.replace(/^#HttpOnly_/, '').split('\t')[0];
+      if (host && !host.startsWith('#')) sites.add(baseDomainOf(host));
+    }
+    return { sites: [...sites].sort() };
+  } catch {
+    return { sites: [] };
+  }
 });
 
 // ==================== PLAYLIST/CHANNEL INFO ====================
@@ -2231,16 +3051,162 @@ ipcMain.handle('get-playlist-info', async (_event, url: string) => {
 });
 
 // ==================== SEARCH VIDEOS ====================
-ipcMain.handle('search-videos', async (_event, query: string, platform: string = 'youtube', count: number = 20) => {
+// yt-dlp's built-in search extractors.
+const ENGINE_SEARCH_PREFIXES: Record<string, string> = {
+  youtube: 'ytsearch',
+  soundcloud: 'scsearch',
+  bilibili: 'bilisearch',
+  niconico: 'nicosearch',
+};
+
+const POST_SEARCH_URLS: Record<string, (query: string) => string> = {
+  instagram: (query) => `https://www.instagram.com/explore/tags/${encodeURIComponent(query.replace(/^#/, '').replace(/\s+/g, ''))}/`,
+  x: (query) => `https://x.com/search?q=${encodeURIComponent(query)}&f=media`,
+  reddit: (query) => `https://www.reddit.com/search/?q=${encodeURIComponent(query)}`,
+  bluesky: (query) => `https://bsky.app/search?q=${encodeURIComponent(query)}`,
+  pinterest: (query) => `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`,
+};
+
+const runGalleryDlSearch = (searchUrl: string, count: number, cookiesBrowser?: string): Promise<{ results: PostResult[]; error?: string }> => {
+  if (!getGalleryDlPath()) return Promise.resolve({ results: [], error: 'gallery-dl is not installed' });
+  return new Promise((resolve) => {
+    // Several files can belong to one post, so read more files than results wanted.
+    const proc = spawnGalleryDl(['-j', '--range', `1-${count * 3}`, ...cookieArgsFor('gallery-dl', searchUrl, cookiesBrowser), searchUrl]);
+    let output = '';
+    let errorOutput = '';
+    const timer = setTimeout(() => terminateProcessTree(proc), 60000);
+    proc.stdout.on('data', (data) => { output += data.toString(); });
+    proc.stderr.on('data', (data) => { errorOutput += data.toString(); });
+    proc.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ results: [], error: error.message });
+    });
+    proc.on('close', () => {
+      clearTimeout(timer);
+      const results = parseGallerySearchResults(output, count);
+      resolve({ results, error: results.length ? undefined : (parseGalleryDlJson(output).error || errorOutput.trim() || 'No results') });
+    });
+  });
+};
+
+const toSearchResponse = (results: PostResult[], query: string, platform: string) => ({
+  success: true,
+  data: {
+    query,
+    platform,
+    results: results.map((result) => ({ ...result, platform, kind: 'post' })),
+  },
+});
+
+const searchPosts = async (searchUrl: string, query: string, platform: string, count: number, cookiesBrowser?: string) => {
+  const { results, error } = await runGalleryDlSearch(searchUrl, count, cookiesBrowser);
+  if (results.length > 0) return toSearchResponse(results, query, platform);
+  const errorKind = classifyEngineError(error);
+  const cookiesExpired = errorKind === 'login' && hasSiteLogin(searchUrl);
+  return { success: false, error: error || 'No results', errorKind, needsLogin: errorKind === 'login', cookiesExpired, site: siteDomainOf(searchUrl), searchUrl };
+};
+
+// Finds a site's search URL template from its OpenSearch description.
+const findOpenSearchTemplate = async (origin: string): Promise<string | undefined> => {
+  try {
+    const page = await net.fetch(origin, { headers: { 'User-Agent': getBrowserUserAgent() } });
+    const html = (await page.text()).slice(0, 400_000);
+    const link = html.match(/<link[^>]+type=["']application\/opensearchdescription\+xml["'][^>]*>/i)?.[0];
+    const href = link?.match(/href=["']([^"']+)["']/i)?.[1];
+    if (!href) return undefined;
+    const description = await net.fetch(new URL(href, origin).href, { headers: { 'User-Agent': getBrowserUserAgent() } });
+    const xml = await description.text();
+    const urls = [...xml.matchAll(/<Url\b[^>]*>/gi)].map((match) => match[0]);
+    const htmlUrl = urls.find((tag) => /type=["']text\/html["']/i.test(tag)) || urls[0];
+    const template = htmlUrl?.match(/template=["']([^"']+)["']/i)?.[1]?.replace(/&amp;/g, '&');
+    return template && template.includes('{searchTerms}') ? new URL(template, origin).href.replace(/%7BsearchTerms%7D/gi, '{searchTerms}') : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+// Experimental: runs the site's own search, then reads the results page with
+// yt-dlp (video sites) or gallery-dl (image sites).
+const searchSite = async (rawSite: string, query: string, count: number, cookiesBrowser?: string) => {
+  const domain = siteDomainOf(rawSite.includes('://') ? rawSite : `https://${rawSite}`);
+  if (!domain) return { success: false, error: 'Invalid site' };
+  const origin = `https://${domain}/`;
+  const template = await findOpenSearchTemplate(origin) || `${origin}search?q={searchTerms}`;
+  const searchUrl = template.replace(/\{searchTerms\}/g, encodeURIComponent(query)).replace(/\{[^}]+\?\}/g, '');
+  const platform = `site:${domain}`;
+
+  const listed: any = await new Promise((resolve) => {
+    const proc = spawnYtDlp(getYtDlpPath(), ['--dump-single-json', '--flat-playlist', '--playlist-end', String(count), '--no-warnings', ...cookieArgsFor('yt-dlp', searchUrl, cookiesBrowser), searchUrl]);
+    let output = '';
+    const timer = setTimeout(() => terminateProcessTree(proc), 60000);
+    proc.stdout.on('data', (data) => { output += data.toString(); });
+    proc.on('error', () => { clearTimeout(timer); resolve(null); });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      try {
+        resolve(code === 0 ? JSON.parse(output) : null);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+  const entries = Array.isArray(listed?.entries) ? listed.entries.filter((entry: any) => entry?.url || entry?.webpage_url) : [];
+  if (entries.length > 0) {
+    return {
+      success: true,
+      data: {
+        query,
+        platform,
+        results: entries.slice(0, count).map((entry: any) => ({
+          id: String(entry.id || entry.url),
+          title: entry.title || entry.url,
+          thumbnail: entry.thumbnail || entry.thumbnails?.[0]?.url,
+          duration: entry.duration,
+          uploader: entry.uploader || entry.channel,
+          url: entry.webpage_url || entry.url,
+          platform,
+        })),
+      },
+    };
+  }
+
+  const posts = await runGalleryDlSearch(searchUrl, count, cookiesBrowser);
+  if (posts.results.length > 0) return toSearchResponse(posts.results, query, platform);
+  return { success: false, error: 'This site\'s search results could not be read', errorKind: 'unsupported', site: domain, searchUrl };
+};
+
+ipcMain.handle('search-videos', async (_event, query: string, platform: string = 'youtube', count: number = 20, cookiesBrowser?: string) => {
+  try {
+    cookiesBrowser = await usableCookieBrowser(normalizeCookieBrowser(cookiesBrowser));
+  } catch {
+    cookiesBrowser = undefined;
+  }
+  platform = typeof platform === 'string' ? platform.slice(0, 200) : 'youtube';
   const normalizedQuery = typeof query === 'string' ? query.trim().slice(0, 300) : '';
   const normalizedCount = Math.max(1, Math.min(50, Number.isFinite(Number(count)) ? Math.floor(Number(count)) : 20));
   if (!normalizedQuery) {
     return { success: false, error: 'Enter a search query' };
   }
 
+  // Image-first sites search through gallery-dl and return posts; their search
+  // pages need a signed-in account.
+  const postSearchUrl = POST_SEARCH_URLS[platform]?.(normalizedQuery);
+  if (postSearchUrl) {
+    return searchPosts(postSearchUrl, normalizedQuery, platform, normalizedCount, cookiesBrowser);
+  }
+
+  // Any other site: its own search page, found through OpenSearch or a common pattern.
+  if (platform.startsWith('site:')) {
+    return searchSite(platform.slice(5), normalizedQuery, normalizedCount, cookiesBrowser);
+  }
+
+  const prefix = ENGINE_SEARCH_PREFIXES[platform];
+  if (!prefix) {
+    return { success: false, error: 'Search is not available for this site' };
+  }
+
   return new Promise((resolve) => {
-    // Generic search strategy
-    const searchQuery = `ytsearch${normalizedCount}:${normalizedQuery}`;
+    const searchQuery = `${prefix}${normalizedCount}:${normalizedQuery}`;
 
     const ytdlp = spawnYtDlp(getYtDlpPath(), [
       '--dump-single-json',
@@ -2439,6 +3405,72 @@ ipcMain.handle('get-app-info', async () => {
       node: process.versions.node,
     }
   };
+});
+
+// ==================== APP UPDATES ====================
+// The Windows installer and the Linux AppImage update in place from the
+// GitHub release (checked against the sha512 in latest.yml). macOS needs a
+// signed app for that, so it keeps opening the download page.
+type AppUpdateState =
+  | { status: 'idle' }
+  | { status: 'downloading'; version?: string; percent: number }
+  | { status: 'ready'; version: string }
+  | { status: 'error'; error: string };
+
+let appUpdateState: AppUpdateState = { status: 'idle' };
+let appUpdaterReady = false;
+
+const canSelfUpdate = () =>
+  app.isPackaged && (process.platform === 'win32' || (process.platform === 'linux' && Boolean(process.env.APPIMAGE)));
+
+const setAppUpdateState = (state: AppUpdateState) => {
+  appUpdateState = state;
+  win?.webContents.send('app-update-state', state);
+};
+
+const setUpAppUpdater = () => {
+  if (appUpdaterReady) return;
+  appUpdaterReady = true;
+  autoUpdater.autoDownload = false;
+  // A downloaded update also installs when the app is closed normally.
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('download-progress', (progress) => {
+    if (appUpdateState.status === 'downloading') setAppUpdateState({ ...appUpdateState, percent: Math.round(progress.percent) });
+  });
+  autoUpdater.on('update-downloaded', (info) => setAppUpdateState({ status: 'ready', version: info.version }));
+  autoUpdater.on('error', (error) => {
+    if (appUpdateState.status === 'downloading') setAppUpdateState({ status: 'error', error: error?.message || String(error) });
+  });
+};
+
+ipcMain.handle('get-app-update-state', async () => ({ ...appUpdateState, canSelfUpdate: canSelfUpdate() }));
+
+ipcMain.handle('download-app-update', async () => {
+  if (!canSelfUpdate()) return { success: false, error: 'unsupported' };
+  if (appUpdateState.status === 'downloading' || appUpdateState.status === 'ready') return { success: true };
+  setUpAppUpdater();
+  try {
+    setAppUpdateState({ status: 'downloading', percent: 0 });
+    const result = await autoUpdater.checkForUpdates();
+    const version = result?.updateInfo?.version;
+    if (!version || compareSemver(normalizeVersion(app.getVersion()), normalizeVersion(version)) >= 0) {
+      setAppUpdateState({ status: 'idle' });
+      return { success: false, error: 'No newer version' };
+    }
+    setAppUpdateState({ status: 'downloading', version, percent: 0 });
+    await autoUpdater.downloadUpdate();
+    return { success: true };
+  } catch (error: any) {
+    setAppUpdateState({ status: 'error', error: error?.message || 'Update failed' });
+    return { success: false, error: appUpdateState.status === 'error' ? appUpdateState.error : 'Update failed' };
+  }
+});
+
+ipcMain.handle('install-app-update', async () => {
+  if (appUpdateState.status !== 'ready') return { success: false };
+  // Closing the window stops running downloads, so the installer can replace the bundled engines.
+  setImmediate(() => autoUpdater.quitAndInstall(true, true));
+  return { success: true };
 });
 
 ipcMain.handle('check-for-updates', async () => {
@@ -2761,9 +3793,16 @@ interface DownloadOptions {
   id?: string;
   url: string;
   titleOverride?: string;
-  format: 'video' | 'audio' | 'photo';
+  format: 'video' | 'audio' | 'photo' | 'gallery';
+  // gallery: 1-based gallery-dl indices of the items to save, or plain file
+  // URLs found on the page.
+  galleryIndices?: number[];
+  directUrls?: string[];
   quality?: string; // '1080', '720', '480', 'best'
-  audioFormat?: string; // 'mp3', 'best'
+  audioFormat?: 'mp3' | 'original';
+  // Exact size of the selected formats from the info call; keeps progress
+  // continuous across the separate video and audio streams.
+  expectedBytes?: number;
   // Enhanced options
   embedSubtitles?: boolean;
   subtitleLanguages?: string[]; // ['en', 'tr', 'auto']
@@ -2876,11 +3915,151 @@ const getDirectEngineDisqualifiers = (context: {
   if (/\.m3u8(\?|$)/i.test(targetUrl)) reasons.push('manifest-stream');
 
   // Keep ffmpeg-enhanced post-processing on yt-dlp path for parity.
-  if (ffmpegReady && opts.audioFormat && opts.audioFormat !== 'best') {
+  if (ffmpegReady && opts.format === 'audio' && opts.audioFormat !== 'original') {
     reasons.push('audio-transcode-preference');
   }
 
   return reasons;
+};
+
+// ==================== GALLERY DOWNLOAD ====================
+// Saves the chosen items of a post in one queue entry, so the post is read
+// once instead of once per item (Instagram rate-limits repeated reads).
+const runGalleryDownload = async (
+  opts: DownloadOptions,
+  downloadId: string,
+  downloadsPath: string,
+): Promise<{ id: string; status: string; error?: string }> => {
+  const stagingDir = getStagingDir();
+  await ensureDirectory(stagingDir);
+  const baseTitle = sanitizeFileComponent(cleanMediaTitle(opts.titleOverride || deriveTitleFromUrl(opts.url)) || '') || `media_${Date.now()}`;
+  const indices = [...new Set((opts.galleryIndices || []).map(Number))]
+    .filter((value) => Number.isInteger(value) && value > 0 && value <= 1000)
+    .sort((a, b) => a - b);
+  const directUrls = (opts.directUrls || []).flatMap((value) => {
+    try {
+      return [normalizeHttpUrl(value)];
+    } catch {
+      return [];
+    }
+  }).slice(0, 100);
+  const total = directUrls.length || indices.length || 1;
+  const numbered = (position: number) => (total > 1 ? ` (${position})` : '');
+
+  const sendProgress = (done: number, eta: string) => {
+    const progress = Math.min(99, Math.max(2, (done / total) * 100));
+    const info = activeDownloads.get(downloadId);
+    if (info) info.progress = progress;
+    win?.webContents.send('download-progress', { id: downloadId, progress, eta });
+  };
+
+  const fail = async (error: string) => {
+    activeDownloads.delete(downloadId);
+    await cleanStagedArtifacts(downloadId, stagingDir);
+    win?.webContents.send('download-error', { id: downloadId, error });
+    // Already reported through download-error.
+    return { id: downloadId, status: 'error' };
+  };
+
+  const stoppedStatus = () => {
+    if (intentionallyCanceledIds.has(downloadId)) {
+      intentionallyCanceledIds.delete(downloadId);
+      activeDownloads.delete(downloadId);
+      return { id: downloadId, status: 'canceled' };
+    }
+    if (intentionallyPausedIds.has(downloadId)) {
+      intentionallyPausedIds.delete(downloadId);
+      pausedDownloads.set(downloadId, { options: opts, progress: activeDownloads.get(downloadId)?.progress || 0 });
+      activeDownloads.delete(downloadId);
+      return { id: downloadId, status: 'paused' };
+    }
+    return null;
+  };
+
+  const finish = async () => {
+    try {
+      const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, { includeImages: true });
+      activeDownloads.delete(downloadId);
+      win?.webContents.send('download-progress', { id: downloadId, progress: 99.9, eta: 'finalizing' });
+      win?.webContents.send('download-complete', { id: downloadId, ...file });
+      return { id: downloadId, status: 'completed' };
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : 'Could not save the downloaded files');
+    }
+  };
+
+  sendProgress(0, 'preparing');
+
+  if (directUrls.length > 0) {
+    const aborters: Array<() => void> = [];
+    activeDownloads.set(downloadId, { process: { kill: () => aborters.forEach((abort) => abort()) }, options: opts, progress: 0 });
+    for (const [position, fileUrl] of directUrls.entries()) {
+      const ext = deriveDirectDownloadExtension(fileUrl, 'photo');
+      const outputPath = path.join(stagingDir, `${downloadId}_${baseTitle}${numbered(position + 1)}.${ext}`);
+      const ok = await downloadFile(fileUrl, outputPath, downloadId, null, { Referer: opts.url }, (abort) => aborters.push(abort));
+      const stopped = stoppedStatus();
+      if (stopped) return stopped;
+      if (!ok) return fail('Failed to download image file');
+      sendProgress(position + 1, `${position + 1}/${total}`);
+    }
+    return finish();
+  }
+
+  if (!getGalleryDlPath()) {
+    return fail('gallery-dl is not installed');
+  }
+
+  return new Promise((resolve) => {
+    const proc = spawnGalleryDl([
+      '-D', stagingDir,
+      '-f', `${downloadId}_{filename}.{extension}`,
+      ...(indices.length > 0 ? ['--range', indices.join(',')] : []),
+      ...cookieArgsFor('gallery-dl', opts.url, opts.cookiesFromBrowser),
+      opts.url,
+    ]);
+    activeDownloads.set(downloadId, { process: proc, options: opts, progress: 0 });
+
+    // gallery-dl prints each saved file's path, or "# path" when it already existed.
+    const saved: string[] = [];
+    let pending = '';
+    let errorOutput = '';
+    proc.stdout.on('data', (data) => {
+      pending += data.toString();
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() || '';
+      for (const line of lines) {
+        const filePath = line.replace(/^#\s+/, '').trim();
+        if (filePath && path.basename(filePath).startsWith(`${downloadId}_`)) {
+          saved.push(filePath);
+          sendProgress(saved.length, `${saved.length}/${total}`);
+        }
+      }
+    });
+    proc.stderr.on('data', (data) => { errorOutput += data.toString(); });
+    proc.on('error', async (error) => resolve(await fail(error.message)));
+    proc.on('close', async (code) => {
+      const stopped = stoppedStatus();
+      if (stopped) {
+        resolve(stopped);
+        return;
+      }
+      if (code !== 0 && saved.length === 0) {
+        const message = errorOutput.split(/\r?\n/).filter((line) => /error/i.test(line)).pop() || 'gallery-dl could not download this post';
+        resolve(await fail(message.replace(/^\[[^\]]+\]\[error\]\s*/i, '')));
+        return;
+      }
+      // Name files after the post, numbered by their place in it.
+      for (const [position, filePath] of saved.entries()) {
+        const itemNumber = indices[position] ?? position + 1;
+        const suffix = saved.length > 1 || total > 1 ? ` (${itemNumber})` : '';
+        const target = path.join(stagingDir, `${downloadId}_${baseTitle}${suffix}${path.extname(filePath)}`);
+        if (target !== filePath) {
+          await fsPromises.rename(filePath, target).catch(() => undefined);
+        }
+      }
+      resolve(await finish());
+    });
+  });
 };
 
 ipcMain.handle('start-download', async (_event, options: DownloadOptions | string) => {
@@ -2898,8 +4077,9 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
       error: error instanceof Error ? error.message : 'Invalid download request',
     };
   }
+  opts.cookiesFromBrowser = await usableCookieBrowser(opts.cookiesFromBrowser);
 
-  if (!['video', 'audio', 'photo'].includes(opts.format)) {
+  if (!['video', 'audio', 'photo', 'gallery'].includes(opts.format)) {
     return { status: 'error', error: 'Unsupported download format' };
   }
 
@@ -2907,10 +4087,19 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     return { status: 'error', error: 'Invalid video quality' };
   }
 
+  opts.audioFormat = opts.audioFormat === 'original' ? 'original' : 'mp3';
+  opts.expectedBytes = Number.isFinite(Number(opts.expectedBytes)) && Number(opts.expectedBytes) > 0
+    ? Number(opts.expectedBytes)
+    : undefined;
+
   const downloadId = opts.id && /^[a-zA-Z0-9_-]{1,64}$/.test(opts.id)
     ? opts.id
     : Math.random().toString(36).slice(2, 11);
   const downloadsPath = await resolveDownloadOutputDir(opts.outputDir);
+
+  if (opts.format === 'gallery') {
+    return runGalleryDownload(opts, downloadId, downloadsPath);
+  }
 
   // ==================== PHOTO DOWNLOAD HANDLER ====================
   if (opts.format === 'photo') {
@@ -2994,7 +4183,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
               progress: 100,
               eta: undefined,
             });
-            win?.webContents.send('download-complete', { id: downloadId });
+            win?.webContents.send('download-complete', { id: downloadId, ...(await describeFile(finalImagePath)) });
             resolve({ id: downloadId, status: 'completed' });
             return;
           }
@@ -3152,7 +4341,9 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
                 progress: 100,
                 eta: undefined,
               });
-              win?.webContents.send('download-complete', { id: downloadId });
+              void describeFile(finalImagePath).then((file) => {
+                win?.webContents.send('download-complete', { id: downloadId, ...file });
+              });
               resolve({ id: downloadId, status: 'completed' });
               return;
             }
@@ -3224,7 +4415,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
 
           if (success) {
             console.log('[Photo Download] Success via HTML extraction');
-            win?.webContents.send('download-complete', { id: downloadId });
+            win?.webContents.send('download-complete', { id: downloadId, ...(await describeFile(outputPath)) });
             resolve({ id: downloadId, status: 'completed' });
             return;
           }
@@ -3290,7 +4481,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
 
               if (success) {
                 console.log('[Photo Download] Success!');
-                win?.webContents.send('download-complete', { id: downloadId });
+                win?.webContents.send('download-complete', { id: downloadId, ...(await describeFile(outputPath)) });
                 resolve({ id: downloadId, status: 'completed' });
               } else {
                 console.warn('[Photo Download] Direct thumbnail fetch failed, falling back to yt-dlp --write-thumbnail');
@@ -3327,8 +4518,8 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
                 fallbackProc.on('close', async (fallbackCode: number | null) => {
                   if (fallbackCode === 0) {
                     try {
-                      await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, { includeImages: true });
-                      win?.webContents.send('download-complete', { id: downloadId });
+                      const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, { includeImages: true });
+                      win?.webContents.send('download-complete', { id: downloadId, ...file });
                       resolve({ id: downloadId, status: 'completed' });
                     } catch {
                       win?.webContents.send('download-error', {
@@ -3399,6 +4590,13 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
   // Build yt-dlp arguments
   let targetUrl = opts.url;
   let finalOutputPath = outputPath;
+
+  // Register before source selection so pause and cancel work while probes run.
+  activeDownloads.set(downloadId, {
+    process: { kill: () => undefined },
+    options: opts,
+    progress: 0,
+  });
 
   // Smart direct-media fallback for all page URLs.
   // We compare extractor and direct candidates, then choose the highest-confidence quality path.
@@ -3524,6 +4722,14 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     // Preserve original-link metadata/title to avoid source-page mismatches.
   }
 
+  if (intentionallyCanceledIds.delete(downloadId)) {
+    return { id: downloadId, status: 'canceled' };
+  }
+
+  if (intentionallyPausedIds.delete(downloadId)) {
+    return { id: downloadId, status: 'paused' };
+  }
+
   const ffmpegReady = isFfmpegAvailable();
 
   const isDirectExtractedUrl = (() => {
@@ -3567,11 +4773,15 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
   const directOutputPath = path.join(stagingDir, `${downloadId}_${directFallbackTitle}.${directOutputExtension}`);
 
   if (opts.format === 'audio') {
-    // AUDIO-ONLY: Prefer MP3 conversion when ffmpeg is available.
-    args.push('-f', 'bestaudio/best');
-    if (ffmpegReady) {
+    // AUDIO-ONLY: convert to MP3 when requested and ffmpeg is available;
+    // "original" keeps the source track as-is. The sort matches the info call
+    // so the size shown for Original is the stream downloaded.
+    args.push('-f', AUDIO_FORMAT_SELECTOR, ...getVideoFormatSortArgs());
+    if (opts.audioFormat === 'original') {
+      // No conversion.
+    } else if (ffmpegReady) {
       args.push('-x');
-      args.push('--audio-format', opts.audioFormat || 'mp3');
+      args.push('--audio-format', 'mp3');
     } else {
       console.warn('[Audio Download] ffmpeg not found, downloading original audio stream without conversion');
     }
@@ -3584,9 +4794,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     args.push('-f', formatSelector);
     console.log('[Format Selection]', { formatSelector, ffmpegReady, requestedQuality: opts.quality || 'best' });
 
-    // Bias yt-dlp toward the highest available visual quality on generic extractors
-    // that expose custom labels (e.g. HQ/LQ) without explicit quality ranks.
-    args.push('-S', 'res,br');
+    args.push(...getVideoFormatSortArgs());
   }
 
   // Enhanced options: Subtitles
@@ -3639,7 +4847,9 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     args.push('--cookies-from-browser', opts.cookiesFromBrowser);
   }
 
-  // Turbo mode: parallel fragment fetching with yt-dlp's native downloader.
+  // Parallel fragment fetching with yt-dlp's native downloader. This only affects
+  // HLS/DASH streams; plain HTTP downloads ignore it. Fragmented streams are slow
+  // one at a time, so they always get a baseline and Turbo raises it.
   if (opts.enableTurboDownload) {
     const requestedConnections = clampTurboConnections(opts.turboConnections);
     const turboConnections = opts.adaptiveTurboDownload === false
@@ -3651,21 +4861,15 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
       console.log('[Turbo Download] Adaptive throttle applied:', {
         requested: requestedConnections,
         effective: turboConnections,
-        activeDownloads: activeDownloads.size + 1,
+        activeDownloads: activeDownloads.size,
         cpuCores: os.cpus().length || 2,
       });
     }
-
-    // yt-dlp's native fragment downloader supports HLS/DASH safely and avoids
-    // handing manifest content to an external process. Concurrent fragments are
-    // the supported acceleration path for modern YouTube downloads.
+  } else {
+    args.push('--concurrent-fragments', String(DEFAULT_CONCURRENT_FRAGMENTS));
   }
 
-  // Network resilience defaults for unstable links/VPN transitions.
-  args.push('--retries', '8');
-  args.push('--fragment-retries', '20');
-  args.push('--retry-sleep', '3');
-  args.push('--socket-timeout', '30');
+  args.push(...getNetworkRetryArgs());
 
   const buildArgsForUrl = (url: string) => {
     const attemptArgs = [...args];
@@ -3725,10 +4929,10 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
         });
 
         try {
-          await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
+          const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
             includeImages: false,
           });
-          win?.webContents.send('download-complete', { id: downloadId });
+          win?.webContents.send('download-complete', { id: downloadId, ...file });
           showDownloadNotification('Download Complete', `${opts.titleOverride || 'Your download'} has finished.`);
         } catch (moveError: any) {
           await cleanStagedArtifacts(downloadId, stagingDir);
@@ -3750,13 +4954,17 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
           eta: `retrying in ${Math.ceil(retryDelayMs / 1000)}s`,
         });
 
-        pendingRetryTimers.set(downloadId, setTimeout(() => {
-          pendingRetryTimers.delete(downloadId);
-          if (intentionallyCanceledIds.has(downloadId) || intentionallyPausedIds.has(downloadId)) {
-            return;
-          }
-          launchDirectAttempt(nextAttempt);
-        }, retryDelayMs));
+        pendingRetryTimers.set(downloadId, {
+          timer: setTimeout(() => {
+            pendingRetryTimers.delete(downloadId);
+            if (intentionallyCanceledIds.has(downloadId) || intentionallyPausedIds.has(downloadId)) {
+              return;
+            }
+            launchDirectAttempt(nextAttempt);
+          }, retryDelayMs),
+          options: opts,
+          progress: 0,
+        });
         return;
       }
 
@@ -3771,6 +4979,8 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     console.log('[start-download] Spawning yt-dlp with args:', attemptArgs.join(' '));
 
     let lastProgress = activeDownloads.get(downloadId)?.progress || 0;
+    // One bar across the video and audio streams instead of restarting at 0%.
+    const aggregateProgress = createProgressAggregator(opts.expectedBytes);
     const subprocess = spawnYtDlp(getYtDlpPath(), attemptArgs);
     activeDownloads.set(downloadId, {
       process: subprocess,
@@ -3786,17 +4996,22 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
       let percent: number | undefined;
       let speed: string | undefined;
       let eta: string | undefined;
+      let speedBps: number | undefined;
 
       const structuredProgress = text
         .split(/\r?\n/)
-        .map((line) => parseYtDlpProgress(line))
+        .map((line) => readProgressRecord(line))
+        .filter((value): value is NonNullable<typeof value> => Boolean(value))
+        .map((record) => aggregateProgress(record))
         .filter((value): value is NonNullable<typeof value> => Boolean(value));
       const structured = structuredProgress[structuredProgress.length - 1];
 
       if (structured) {
-        percent = structured.progress;
+        // Never step back below what earlier attempts already reported.
+        percent = Math.max(structured.progress, lastProgress);
         speed = structured.speed;
         eta = structured.eta;
+        speedBps = structured.speedBps;
       }
 
       // yt-dlp format: [download] 45.2% of ... at 1.23MiB/s ETA 00:05
@@ -3823,7 +5038,8 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
         id: downloadId,
         progress: percent,
         speed,
-        eta
+        eta,
+        speedBps,
       });
 
       const downloadInfo = activeDownloads.get(downloadId);
@@ -3881,7 +5097,10 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
       if (stdoutProgressBuffer) emitProgressFromText(stdoutProgressBuffer);
       if (stderrProgressBuffer) emitProgressFromText(stderrProgressBuffer);
       clearPendingRetryTimer(downloadId);
-      activeDownloads.delete(downloadId);
+      // A late close must not drop the entry of a restart that reuses this id.
+      if (activeDownloads.get(downloadId)?.process === subprocess) {
+        activeDownloads.delete(downloadId);
+      }
 
       // Intentional cancel should be silent from the queue perspective.
       if (intentionallyCanceledIds.has(downloadId)) {
@@ -3905,10 +5124,10 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
           });
 
           try {
-            await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
+            const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
               includeImages: opts.preserveThumbnail !== false && !ffmpegReady,
             });
-            win?.webContents.send('download-complete', { id: downloadId });
+            win?.webContents.send('download-complete', { id: downloadId, ...file });
             showDownloadNotification('Download Complete', `${opts.titleOverride || 'Your download'} has finished.`);
           } catch (moveError: any) {
             await cleanStagedArtifacts(downloadId, stagingDir);
@@ -3941,10 +5160,10 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
 
           if (ok) {
             try {
-              await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
+              const file = await finalizeStagedDownload(downloadId, stagingDir, downloadsPath, {
                 includeImages: opts.preserveThumbnail !== false && !ffmpegReady,
               });
-              win?.webContents.send('download-complete', { id: downloadId });
+              win?.webContents.send('download-complete', { id: downloadId, ...file });
               showDownloadNotification('Download Complete', `${opts.titleOverride || 'Your download'} has finished.`);
             } catch (moveError: any) {
               await cleanStagedArtifacts(downloadId, stagingDir);
@@ -3995,21 +5214,25 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
             eta: `retrying in ${Math.ceil(retryDelayMs / 1000)}s`,
           });
 
-          pendingRetryTimers.set(downloadId, setTimeout(() => {
-            pendingRetryTimers.delete(downloadId);
-            if (intentionallyCanceledIds.has(downloadId) || intentionallyPausedIds.has(downloadId)) {
-              return;
-            }
+          pendingRetryTimers.set(downloadId, {
+            timer: setTimeout(() => {
+              pendingRetryTimers.delete(downloadId);
+              if (intentionallyCanceledIds.has(downloadId) || intentionallyPausedIds.has(downloadId)) {
+                return;
+              }
 
-            try {
-              launchAttempt(nextAttempt);
-            } catch (retryError: any) {
-              win?.webContents.send('download-error', {
-                id: downloadId,
-                error: retryError?.message || classification.message,
-              });
-            }
-          }, retryDelayMs));
+              try {
+                launchAttempt(nextAttempt);
+              } catch (retryError: any) {
+                win?.webContents.send('download-error', {
+                  id: downloadId,
+                  error: retryError?.message || classification.message,
+                });
+              }
+            }, retryDelayMs),
+            options: opts,
+            progress: lastProgress,
+          });
 
           return;
         }
@@ -4025,7 +5248,9 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
 
     subprocess.on('error', (err: Error) => {
       clearPendingRetryTimer(downloadId);
-      activeDownloads.delete(downloadId);
+      if (activeDownloads.get(downloadId)?.process === subprocess) {
+        activeDownloads.delete(downloadId);
+      }
       win?.webContents.send('download-error', {
         id: downloadId,
         error: err.message
@@ -4041,6 +5266,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     }
     return { id: downloadId, status: 'started' };
   } catch (error: any) {
+    activeDownloads.delete(downloadId);
     return {
       id: downloadId,
       status: 'error',
@@ -4078,9 +5304,29 @@ ipcMain.handle('get-runtime-dependencies-status', async () => {
           installCommand: commands.ffmpeg,
           helpUrl: 'https://ffmpeg.org/download.html',
         },
+        {
+          id: 'gallery-dl',
+          name: 'gallery-dl',
+          required: false,
+          installed: Boolean(getGalleryDlPath()),
+          installCommand: commands.galleryDl,
+          helpUrl: 'https://github.com/mikf/gallery-dl#installation',
+        },
       ],
     },
   };
+});
+
+ipcMain.handle('get-engine-status', async () => getEngineStatus());
+
+ipcMain.handle('update-engines', async () => {
+  const results = await updateEngines();
+  return { results, status: getEngineStatus() };
+});
+
+ipcMain.handle('set-engine-auto-update', async (_event, enabled: boolean) => {
+  writeEngineUpdateState({ ...readEngineUpdateState(), autoUpdate: Boolean(enabled) });
+  return getEngineStatus();
 });
 
 ipcMain.handle('open-external-url', async (_event, url: string) => {
@@ -4114,9 +5360,11 @@ ipcMain.handle('cancel-download', async (_event, downloadId: string) => {
   if (downloadInfo) {
     intentionallyPausedIds.delete(downloadId);
     intentionallyCanceledIds.add(downloadId);
+    const closed = waitForProcessClose(downloadInfo.process);
     terminateProcessTree(downloadInfo.process);
     activeDownloads.delete(downloadId);
     pausedDownloads.delete(downloadId); // Also remove from paused if exists
+    await closed;
     await cleanStagedArtifacts(downloadId, stagingDir);
     return { success: true };
   }
@@ -4138,12 +5386,16 @@ ipcMain.handle('cancel-download', async (_event, downloadId: string) => {
     await cleanStagedArtifacts(downloadId, stagingDir);
     return { success: true };
   }
-  return { success: false, error: 'Download not found' };
+
+  // Nothing is running (a failed or interrupted item): discard its partial files.
+  await cleanStagedArtifacts(downloadId, stagingDir);
+  return { success: true };
 });
 
 // Pause download - kills process but saves state for resume
 ipcMain.handle('pause-download', async (_event, downloadId: string) => {
   const downloadInfo = activeDownloads.get(downloadId);
+  const pendingRetry = pendingRetryTimers.get(downloadId);
   clearPendingRetryTimer(downloadId);
   if (downloadInfo) {
     // Mark as intentionally paused (so close handler won't send error)
@@ -4155,9 +5407,20 @@ ipcMain.handle('pause-download', async (_event, downloadId: string) => {
       progress: downloadInfo.progress
     });
     // Kill the process
+    const closed = waitForProcessClose(downloadInfo.process);
     terminateProcessTree(downloadInfo.process);
     activeDownloads.delete(downloadId);
+    await closed;
     return { success: true, progress: downloadInfo.progress };
+  }
+
+  // Waiting between retries: nothing to kill, but the options are still needed to resume.
+  if (pendingRetry) {
+    pausedDownloads.set(downloadId, {
+      options: pendingRetry.options,
+      progress: pendingRetry.progress
+    });
+    return { success: true, progress: pendingRetry.progress };
   }
   return { success: false, error: 'Download not found' };
 });
@@ -4195,6 +5458,20 @@ ipcMain.handle('open-folder', async (_event, folderPath?: string) => {
   return { success: true, data: { path: targetPath } };
 });
 
+ipcMain.handle('open-file', async (_event, filePath?: string) => {
+  const targetPath = resolveOpenableMediaPath(filePath);
+  if (!targetPath) return { success: false, error: 'File not found' };
+  const failure = await shell.openPath(targetPath);
+  return failure ? { success: false, error: failure } : { success: true };
+});
+
+ipcMain.handle('show-file', async (_event, filePath?: string) => {
+  const targetPath = resolveOpenableMediaPath(filePath);
+  if (!targetPath) return { success: false, error: 'File not found' };
+  shell.showItemInFolder(targetPath);
+  return { success: true };
+});
+
 // ==================== APP LIFECYCLE ====================
 app.on('window-all-closed', () => {
   // Kill all active downloads
@@ -4205,7 +5482,7 @@ app.on('window-all-closed', () => {
       // Ignore
     }
   });
-  pendingRetryTimers.forEach((timer) => clearTimeout(timer));
+  pendingRetryTimers.forEach((pendingRetry) => clearTimeout(pendingRetry.timer));
   pendingRetryTimers.clear();
   activeDownloads.clear();
   pausedDownloads.clear();
@@ -4225,6 +5502,8 @@ app.on('activate', () => {
 app.whenReady().then(async () => {
   await ensureDownloadLocationLoaded();
   createWindow();
+  setInterval(updateTaskbarProgress, 1000);
+  scheduleEngineUpdateChecks();
 
   nativeTheme.on('updated', () => {
     const applicationIcon = getApplicationIcon();

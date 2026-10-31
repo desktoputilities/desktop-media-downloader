@@ -6,6 +6,73 @@ export interface QuickVideoInfoSeed {
   extractor: string;
 }
 
+export interface QualitySizeDetail {
+  bytes: number;
+  exact: boolean;
+  ext?: string;
+}
+
+// Height limits sent to yt-dlp as one selector each, so a single info call
+// resolves the formats every quality button would download.
+export const SIZE_LADDER = [4320, 2160, 1440, 1080, 720, 480, 360, 240, 144];
+
+// Maps yt-dlp's requested_downloads onto the offered qualities. A result counts
+// only when its height equals the quality: the download for that quality then
+// selects the same formats. Other qualities keep their estimate.
+export const summarizeRequestedDownloads = (
+  requestedDownloads: unknown,
+  qualities: number[],
+): Record<string, QualitySizeDetail> => {
+  if (!Array.isArray(requestedDownloads)) return {};
+
+  const resolved = requestedDownloads.map((download: any) => {
+    const parts: any[] = Array.isArray(download?.requested_formats) && download.requested_formats.length > 0
+      ? download.requested_formats
+      : [download];
+    const bytes = parts.reduce((total, part) => total + (Number(part?.filesize) || Number(part?.filesize_approx) || 0), 0);
+    const height = Math.max(0, ...parts.map((part) => Number(part?.height) || 0)) || Number(download?.height) || 0;
+
+    return {
+      height,
+      bytes,
+      exact: parts.every((part) => Number(part?.filesize) > 0),
+      ext: typeof download?.ext === 'string' ? download.ext : undefined,
+    };
+  });
+
+  const details: Record<string, QualitySizeDetail> = {};
+  for (const quality of qualities) {
+    const match = resolved.find((item) => item.height === quality && item.bytes > 0);
+    if (match) {
+      details[String(quality)] = { bytes: match.bytes, exact: match.exact, ext: match.ext };
+    }
+  }
+  return details;
+};
+
+// The audio-only result from the same info call (selector 'bestaudio/best').
+// Only an entry with no video stream counts, so a video fallback is never
+// reported as an audio size.
+export const summarizeAudioDownload = (requestedDownloads: unknown): QualitySizeDetail | undefined => {
+  if (!Array.isArray(requestedDownloads)) return undefined
+
+  for (const download of requestedDownloads as any[]) {
+    const parts: any[] = Array.isArray(download?.requested_formats) && download.requested_formats.length > 0
+      ? download.requested_formats
+      : [download]
+    const audioOnly = parts.every((part) => part?.vcodec === 'none' && part?.acodec && part.acodec !== 'none')
+    const bytes = parts.reduce((total, part) => total + (Number(part?.filesize) || Number(part?.filesize_approx) || 0), 0)
+    if (audioOnly && bytes > 0) {
+      return {
+        bytes,
+        exact: parts.every((part) => Number(part?.filesize) > 0),
+        ext: typeof download?.ext === 'string' ? download.ext : undefined,
+      }
+    }
+  }
+  return undefined
+}
+
 export interface QuickHtmlMetadata {
   title?: string;
   thumbnail?: string;

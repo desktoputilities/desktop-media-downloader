@@ -4,10 +4,54 @@ import {
   buildYtDlpArgs,
   classifyDownloadFailure,
   decodeDumpedPages,
+  getNetworkRetryArgs,
+  getVideoFormatSortArgs,
   getYtDlpRuntimeConfig,
+  isStagedTempFile,
   normalizeHttpUrl,
   parseYtDlpProgress,
+  createProgressAggregator,
+  readProgressRecord,
 } from './yt-dlp'
+
+describe('download arguments', () => {
+  it('ranks protocol above bitrate so HTTPS beats HLS at the same resolution', () => {
+    const [flag, sort] = getVideoFormatSortArgs()
+
+    expect(flag).toBe('-S')
+    expect(sort.split(',')).toEqual(['res', 'proto', 'br'])
+  })
+
+  it('backs off between fragment retries as well as HTTP retries', () => {
+    const args = getNetworkRetryArgs()
+    const retrySleeps = args.filter((_, index) => args[index - 1] === '--retry-sleep')
+
+    expect(retrySleeps).toEqual(['3', 'fragment:exp=1:20'])
+  })
+})
+
+describe('staged file detection', () => {
+  it.each([
+    'abc_Title.mp4.part',
+    'abc_Title.f299.mp4.part',
+    'abc_Title.f312.mp4.part-Frag12',
+    'abc_Title.f312.mp4.part-Frag12.part',
+    'abc_Title.mp4.ytdl',
+    'abc_Title.temp',
+    'abc_Title.TMP',
+  ])('treats %s as temporary', (name) => {
+    expect(isStagedTempFile(name)).toBe(true)
+  })
+
+  it.each([
+    'abc_Movie.Part 2.mp4',
+    'abc_Movie.part1.mkv',
+    'abc_counterpart.mp4',
+    'abc_Lecture.part.mp4',
+  ])('keeps %s', (name) => {
+    expect(isStagedTempFile(name)).toBe(false)
+  })
+})
 
 describe('yt-dlp runtime configuration', () => {
   it('enables the embedded Node runtime when it can run YouTube challenges', () => {
@@ -111,5 +155,33 @@ describe('decodeDumpedPages', () => {
     const html = '<html><video src="https://example.com/a.mp4"></video></html>'
     const out = `[generic] Extracting URL: https://example.com\n[generic] Dumping request\n${Buffer.from(html).toString('base64')}\n`
     expect(decodeDumpedPages(out)).toBe(html)
+  })
+})
+
+describe('progress across streams', () => {
+  const record = (downloaded: number, total: number, formatId: string, speed = 1048576) =>
+    readProgressRecord(`desktop-media-progress\t${downloaded}\t${total}\tNA\t${speed}\t1\tNA\t${formatId}`)!
+
+  it('reads the format id from the progress template', () => {
+    expect(record(10, 100, '137').formatId).toBe('137')
+  })
+
+  it('continues from the video stream into the audio stream with the expected total', () => {
+    const aggregate = createProgressAggregator(1000)
+    expect(aggregate(record(900, 900, '137')).progress).toBe(90)
+    // The audio stream starts at 0% on its own; overall progress keeps going.
+    expect(aggregate(record(0, 100, '140')).progress).toBe(90)
+    expect(aggregate(record(50, 100, '140')).progress).toBe(95)
+  })
+
+  it('never goes backwards or reaches 100% before the file is finalized', () => {
+    const aggregate = createProgressAggregator()
+    expect(aggregate(record(100, 100, '137')).progress).toBe(99.9)
+    expect(aggregate(record(1, 100, '140')).progress).toBe(99.9)
+  })
+
+  it('estimates the remaining time from the bytes left overall', () => {
+    const aggregate = createProgressAggregator(10 * 1048576)
+    expect(aggregate(record(5 * 1048576, 5 * 1048576, '137', 1048576)).eta).toBe('0:05')
   })
 })

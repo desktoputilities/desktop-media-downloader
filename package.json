@@ -1,7 +1,7 @@
 {
   "name": "desktop-media-downloader",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Open-source yt-dlp desktop media downloader for Windows, macOS, and Linux.",
   "keywords": [
     "electron",
@@ -39,7 +39,7 @@
     "dev": "vite",
     "prepare:electron": "install-electron",
     "prepare:yt-dlp": "node scripts/bundle-yt-dlp.mjs",
-    "prepare:deps": "npm run prepare:electron && npm run prepare:yt-dlp",
+    "prepare:deps": "npm run prepare:electron && npm run prepare:yt-dlp && npm run prepare:gallery-dl",
     "postinstall": "npm run prepare:deps",
     "build:app": "tsc && vite build",
     "build": "npm run build:app && electron-builder",
@@ -48,10 +48,12 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check": "npm test && npm run lint && npm run typecheck",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "prepare:gallery-dl": "node scripts/bundle-gallery-dl.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.11",
     "framer-motion": "^12.23.25",
     "i18next": "^25.8.13",
     "lucide-react": "^0.556.0",

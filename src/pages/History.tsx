@@ -1,6 +1,7 @@
 import React from 'react';
-import { Search, Calendar, Download, Trash2, RefreshCw, XCircle, ExternalLink } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { Search, Calendar, Download, Trash2, RefreshCw, XCircle, ExternalLink, Folder, FileVideo } from 'lucide-react';
+import { cn, formatFileSize } from '../lib/utils';
+import { openFile, showFile } from '../lib/fileActions';
 import { useDownloads, HistoryItem } from '../context/DownloadContext';
 import { useTranslation } from 'react-i18next';
 
@@ -24,7 +25,16 @@ const History: React.FC = () => {
     );
 
     const handleRedownload = async (item: HistoryItem) => {
-        await addDownload(item.url, item.format, item.quality);
+        await addDownload(item.url, item.format, item.quality, { title: item.title, thumbnail: item.thumbnail });
+    };
+
+    // What was saved: the real container when known, else the requested kind.
+    const formatBadge = (item: HistoryItem): string => {
+        if (item.fileCount && item.fileCount > 1) return t('history.fileCount', { count: item.fileCount });
+        if (item.fileExt) return item.fileExt.toUpperCase();
+        if (item.format === 'audio') return t('formatSelector.audio');
+        if (item.format === 'photo') return t('history.photo');
+        return t('history.video');
     };
 
     if (!settings.historyEnabled) {
@@ -145,15 +155,35 @@ const History: React.FC = () => {
                                             item.format === 'photo' ? "bg-foreground/15 text-foreground/80" :
                                                 "bg-foreground/20 text-foreground"
                                     )}>
-                                        {item.format === 'audio' ? 'MP3' : item.format === 'photo' ? t('history.photo') : item.quality ? `${item.quality}p` : t('history.video')}
+                                        {formatBadge(item)}
                                     </span>
+                                    {item.format === 'video' && item.quality && /^\d+$/.test(item.quality) && <span>{item.quality}p</span>}
+                                    {item.fileSize ? <span>{formatFileSize(item.fileSize, true)}</span> : null}
                                     <span>•</span>
                                     <span>{formatDate(item.completedAt)}</span>
                                 </div>
                             </div>
 
                             {/* Actions */}
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center gap-1">
+                                {item.filePath && (
+                                    <button
+                                        onClick={() => void openFile(item.filePath)}
+                                        className="p-2 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground transition-colors"
+                                        title={t('downloadCard.openFile')}
+                                    >
+                                        <FileVideo className="w-4 h-4" />
+                                    </button>
+                                )}
+                                {item.filePath && (
+                                    <button
+                                        onClick={() => void showFile(item.filePath)}
+                                        className="p-2 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground transition-colors"
+                                        title={t('downloadCard.showInFolder')}
+                                    >
+                                        <Folder className="w-4 h-4" />
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => handleRedownload(item)}
                                     className="p-2 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground transition-colors"

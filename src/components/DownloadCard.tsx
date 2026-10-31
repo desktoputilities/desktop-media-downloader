@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { X, Check, Pause, Play, Folder, AlertCircle, Youtube, Globe, Music, RefreshCw, Zap, Copy, ExternalLink } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { X, Check, Pause, Play, Folder, AlertCircle, Youtube, Globe, Music, RefreshCw, Zap, Copy, ExternalLink, FileVideo, Clock } from 'lucide-react';
+import { cn, formatFileSize } from '../lib/utils';
+import { openFile, showFile } from '../lib/fileActions';
 import { useTranslation } from 'react-i18next';
 
 export interface DownloadItemData {
@@ -9,15 +10,22 @@ export interface DownloadItemData {
     title: string;
     thumbnail?: string;
     progress: number;
-    status: 'pending' | 'downloading' | 'completed' | 'error' | 'paused';
+    status: 'queued' | 'pending' | 'downloading' | 'completed' | 'error' | 'paused';
     speed?: string;
     eta?: string;
-    format?: 'video' | 'audio' | 'photo';
+    format?: 'video' | 'audio' | 'photo' | 'gallery';
     quality?: string;
+    galleryIndices?: number[];
+    directUrls?: string[];
     outputDir?: string;
     enableTurboDownload?: boolean;
     adaptiveTurboDownload?: boolean;
     turboConnections?: number;
+    filePath?: string;
+    fileSize?: number;
+    fileExt?: string;
+    fileCount?: number;
+    totalBytes?: number;
     error?: string;
 }
 
@@ -28,6 +36,7 @@ interface DownloadCardProps {
     onResume?: (id: string) => void;
     onBoost?: (id: string) => void;
     onRetry?: (id: string) => void;
+    // Opens the folder when the item has no saved file path.
     onOpenFolder: (folderPath?: string) => void;
 }
 
@@ -47,7 +56,21 @@ const getSourceLabel = (url: string) => {
     return 'Web';
 };
 
-const getTroubleshootingLink = (error?: string): string | null => {
+// Before completion only the request is known, so audio shows "Audio" rather than
+// a container it may not end up in. After completion, show the real extension.
+const getFormatBadge = (item: DownloadItemData): string => {
+    if (item.status === 'completed' && item.fileCount && item.fileCount > 1) return `${item.fileCount} files`;
+    if (item.status === 'completed' && item.fileExt) return item.fileExt.toUpperCase();
+    if (item.format === 'audio') return 'Audio';
+    if (item.format === 'photo') return 'IMG';
+    if (item.format === 'gallery') {
+        const count = item.galleryIndices?.length || item.directUrls?.length || 0;
+        return count > 1 ? `${count} items` : 'Media';
+    }
+    return item.quality && /^\d+$/.test(item.quality) ? `${item.quality}p` : 'Best';
+};
+
+const getTroubleshootingLink =(error?: string): string | null => {
     if (!error) return null;
 
     const normalized = error.toLowerCase();
@@ -65,9 +88,12 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
     const { t } = useTranslation();
     const [copiedDiagnostics, setCopiedDiagnostics] = useState(false);
     const isActive = item.status === 'downloading' || item.status === 'pending';
+    const isQueued = item.status === 'queued';
     const isPaused = item.status === 'paused';
     const isComplete = item.status === 'completed';
     const isError = item.status === 'error';
+    const isPreparing = item.status === 'pending' && item.progress <= 0 && !item.eta;
+    const finalSize = isComplete ? formatFileSize(item.totalBytes || item.fileSize, true) : undefined;
     const isRetrying = isActive && Boolean(item.eta && /retrying/i.test(item.eta));
     const isFinalizing = isActive && Boolean(item.eta && /finalizing/i.test(item.eta));
     const troubleshootingLink = useMemo(() => getTroubleshootingLink(item.error), [item.error]);
@@ -144,7 +170,7 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                         <div className="w-full h-full flex items-center justify-center">
                             {item.format === 'audio' ? (
                                 <Music className="w-8 h-8 text-foreground/20" />
-                            ) : item.format === 'photo' ? (
+                            ) : item.format === 'photo' || item.format === 'gallery' ? (
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
                                     width="32"
@@ -173,12 +199,12 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                             'absolute bottom-1 right-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase backdrop-blur-md border border-foreground/10',
                             item.format === 'audio'
                                 ? 'bg-accent/20 text-foreground'
-                                : item.format === 'photo'
+                                : item.format === 'photo' || item.format === 'gallery'
                                     ? 'bg-warning/25 text-foreground'
                                     : 'bg-primary/15 text-foreground'
                         )}
                     >
-                        {item.format === 'audio' ? 'MP3' : item.format === 'photo' ? 'IMG' : item.quality || 'HD'}
+                        {getFormatBadge(item)}
                     </div>
                 </div>
 
@@ -191,14 +217,26 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                                 {item.title}
                             </h3>
 
-                            {/* Actions Floating */}
-                            <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-2 group-hover:translate-x-0">
+                            {/* Actions: always shown for finished files, on hover otherwise */}
+                            <div className={cn(
+                                'flex items-center gap-1 flex-shrink-0 transition-all duration-200',
+                                !isComplete && 'opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0'
+                            )}>
+                                {isComplete && item.filePath && (
+                                    <button onClick={() => void openFile(item.filePath, item.outputDir)} className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground" title={t('downloadCard.openFile')}>
+                                        <FileVideo className="w-4 h-4" />
+                                    </button>
+                                )}
                                 {isComplete && (
-                                    <button onClick={() => onOpenFolder(item.outputDir)} className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground" title={t('downloadCard.showInFolder')}>
+                                    <button
+                                        onClick={() => (item.filePath ? void showFile(item.filePath, item.outputDir) : onOpenFolder(item.outputDir))}
+                                        className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground"
+                                        title={t('downloadCard.showInFolder')}
+                                    >
                                         <Folder className="w-4 h-4" />
                                     </button>
                                 )}
-                                {isActive && onPause && (
+                                {(isActive || isQueued) && onPause && (
                                     <button onClick={() => onPause(item.id)} className="p-1.5 rounded-lg hover:bg-warning/20 text-foreground/60 hover:text-warning" title={t('downloadCard.pause')}>
                                         <Pause className="w-4 h-4" />
                                     </button>
@@ -213,7 +251,7 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                                         <Zap className="w-4 h-4" />
                                     </button>
                                 )}
-                                {(isActive || isPaused || isError) && (
+                                {(isActive || isQueued || isPaused || isError) && (
                                     <button onClick={() => onCancel(item.id)} className="p-1.5 rounded-lg hover:bg-error/20 text-foreground/60 hover:text-error" title={t('downloadCard.cancel')}>
                                         <X className="w-4 h-4" />
                                     </button>
@@ -244,10 +282,12 @@ const DownloadCard: React.FC<DownloadCardProps> = ({ item, onCancel, onPause, on
                     {/* Status & Footer */}
                     <div className="flex items-center justify-between mt-2">
                         <div className="text-xs">
-                            {isComplete && <span className="text-success flex items-center gap-1"><Check className="w-3 h-3" /> {t('downloadCard.completed')}</span>}
+                            {isComplete && <span className="text-success flex items-center gap-1"><Check className="w-3 h-3" /> {t('downloadCard.completed')}{finalSize && ` · ${finalSize}`}</span>}
                             {isError && <span className="text-error flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {item.error || t('downloadCard.failed')}</span>}
                             {isPaused && <span className="text-warning flex items-center gap-1"><Pause className="w-3 h-3" /> {t('downloadCard.paused')} - {item.progress.toFixed(1)}%</span>}
-                            {isActive && (
+                            {isQueued && <span className="text-foreground/60 flex items-center gap-1"><Clock className="w-3 h-3" /> {t('downloadCard.queued')}</span>}
+                            {isPreparing && <span className="text-foreground/60">{t('downloadCard.preparing')}</span>}
+                            {isActive && !isPreparing && (
                                 <span className={cn(isRetrying ? 'text-warning' : 'text-foreground/60')}>
                                     {item.progress.toFixed(1)}%
                                     {item.eta && ((isRetrying || isFinalizing) ? ` • ${item.eta}` : ` • ${item.eta} ${t('downloadCard.remaining')}`)}

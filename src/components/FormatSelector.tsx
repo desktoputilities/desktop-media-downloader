@@ -1,112 +1,215 @@
 import React from 'react';
-import { Video, Music, Check, X, FolderOpen, Loader2 } from 'lucide-react';
-import { cn } from '../lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Video, Music, Image as ImageIcon, FolderOpen, Loader2, ArrowRight, History as HistoryIcon, Gauge, X, Check } from 'lucide-react';
+import { cn, formatFileSize } from '../lib/utils';
+import { formatClockTime } from '../lib/videoPreview';
 import { useTranslation } from 'react-i18next';
+import type { AudioFormat, DownloadFormat, HistoryItem, MediaItem, VideoInfo } from '../context/DownloadContext';
 
-interface FormatSelectorProps {
-    isOpen: boolean;
-    onClose: () => void;
-    onSelect: (
-        format: 'video' | 'audio' | 'photo',
-        quality?: string,
-        outputDir?: string,
-        turboOverride?: { enabled: boolean; adaptive?: boolean; connections?: number },
-        photoTimestampMode?: 'screenshot' | 'thumbnail'
-    ) => void;
-    availableQualities?: number[];
-    qualitySizes?: Record<string, number>;
+export interface FormatSelection {
+    format: DownloadFormat;
+    quality?: string;
+    galleryIndices?: number[];
+    directUrls?: string[];
+    audioFormat?: AudioFormat;
+    photoTimestampMode?: 'screenshot' | 'thumbnail';
+    outputDir?: string;
+    turboOverride: { enabled: boolean; adaptive?: boolean; connections?: number };
+    // Only exact sizes; an estimate would make the progress bar drift.
+    expectedBytes?: number;
+}
+
+export interface FormatPanelHandle {
+    submit: () => void;
+}
+
+interface FormatPanelProps {
+    videoInfo: VideoInfo | null;
     isLoadingQualities?: boolean;
+    timestampSeconds?: number;
+    duplicate?: HistoryItem;
     defaultQuality?: string;
     defaultTurboEnabled?: boolean;
     defaultAdaptiveTurbo?: boolean;
     defaultTurboConnections?: number;
-    hasTimestampInUrl?: boolean;
+    onDownload: (selection: FormatSelection) => void;
 }
 
-// Get quality label based on resolution
-const getQualityLabel = (height: number): { label: string; sublabel: string } => {
-    if (height >= 2160) return { label: 'UHD', sublabel: `${height}p` };
-    if (height >= 1440) return { label: '2K', sublabel: `${height}p` };
-    if (height >= 1080) return { label: 'FHD', sublabel: `${height}p` };
-    if (height >= 720) return { label: 'HD', sublabel: `${height}p` };
-    if (height >= 480) return { label: 'SD', sublabel: `${height}p` };
-    return { label: 'Low', sublabel: `${height}p` };
+const folderName = (folderPath: string): string => folderPath.split(/[\\/]/).filter(Boolean).pop() || folderPath;
+
+const describeItem = (item: MediaItem): string => [
+    item.width && item.height ? `${item.width} × ${item.height}` : undefined,
+    formatFileSize(item.bytes),
+    item.ext?.toUpperCase(),
+].filter(Boolean).join(' · ');
+
+const MediaTile: React.FC<{ item: MediaItem; selected: boolean; onToggle: () => void }> = ({ item, selected, onToggle }) => {
+    const { t } = useTranslation();
+    const [broken, setBroken] = React.useState(false);
+    const KindIcon = item.kind === 'video' ? Video : item.kind === 'audio' ? Music : ImageIcon;
+    const kindLabel = item.kind === 'video' ? t('formatSelector.video') : item.kind === 'audio' ? t('formatSelector.audio') : t('formatSelector.image');
+    return (
+        <button
+            type="button"
+            role="checkbox"
+            aria-checked={selected}
+            aria-label={`${item.index} · ${kindLabel}`}
+            title={[kindLabel, describeItem(item)].filter(Boolean).join(' · ')}
+            onClick={onToggle}
+            className={cn(
+                'relative aspect-square rounded-xl overflow-hidden border-2 bg-secondary/50 transition-colors',
+                selected ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'
+            )}
+        >
+            {item.thumbnail && !broken ? (
+                <img
+                    src={item.thumbnail}
+                    alt=""
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={() => setBroken(true)}
+                    className="absolute inset-0 w-full h-full object-cover"
+                />
+            ) : (
+                <KindIcon className="absolute inset-0 m-auto w-6 h-6 text-foreground/40" />
+            )}
+            <span className="absolute left-1.5 bottom-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[10px] font-medium">
+                <KindIcon className="w-3 h-3" />
+                {item.index}
+            </span>
+            <span className={cn(
+                'absolute right-1.5 top-1.5 w-5 h-5 rounded-md flex items-center justify-center border',
+                selected ? 'bg-primary border-primary text-primary-foreground' : 'bg-black/40 border-white/60'
+            )}>
+                {selected && <Check className="w-3.5 h-3.5" />}
+            </span>
+        </button>
+    );
 };
 
-const isMobileFriendlyQuality = (height: number): boolean => height <= 1080;
+// LAME's default VBR level (yt-dlp --audio-quality 5) averages about 130 kbit/s.
+const MP3_ESTIMATE_BITS_PER_SECOND = 130_000;
 
-const FormatSelector: React.FC<FormatSelectorProps> = ({
-    isOpen,
-    onClose,
-    onSelect,
-    availableQualities = [],
-    qualitySizes = {},
+const FormatPanel = React.forwardRef<FormatPanelHandle, FormatPanelProps>(({
+    videoInfo,
     isLoadingQualities = false,
+    timestampSeconds,
+    duplicate,
     defaultQuality = 'best',
-    defaultTurboEnabled = true,
-    defaultAdaptiveTurbo = true,
+    defaultTurboEnabled = false,
+    defaultAdaptiveTurbo = false,
     defaultTurboConnections = 8,
-    hasTimestampInUrl = false,
-}) => {
-    const { t } = useTranslation();
+    onDownload,
+}, ref) => {
+    const { t, i18n } = useTranslation();
+    const hasTimestamp = timestampSeconds !== undefined;
+    const mediaKind = videoInfo?.mediaKind;
+    const isAudioOnly = mediaKind === 'audio';
+    // Images and carousels list their items instead of format tabs.
+    const mediaItems = React.useMemo(
+        () => (mediaKind === 'image' || mediaKind === 'gallery' ? videoInfo?.items || [] : []),
+        [mediaKind, videoInfo?.items]
+    );
+    const isMediaList = mediaItems.length > 0;
+    const [selectedItems, setSelectedItems] = React.useState<Set<number>>(new Set());
     const [selectedFormat, setSelectedFormat] = React.useState<'video' | 'audio' | 'photo'>('video');
+
+    // Posts start with everything selected; a profile or feed with nothing.
+    React.useEffect(() => {
+        setSelectedItems(new Set(videoInfo?.isCollection ? [] : mediaItems.map((item) => item.index)));
+    }, [mediaItems, videoInfo?.isCollection]);
+
+    React.useEffect(() => {
+        if (isAudioOnly) setSelectedFormat('audio');
+    }, [isAudioOnly]);
+
+    const toggleItem = (index: number) => setSelectedItems((previous) => {
+        const next = new Set(previous);
+        if (next.has(index)) next.delete(index);
+        else next.add(index);
+        return next;
+    });
+    const allSelected = selectedItems.size === mediaItems.length;
     const [selectedQuality, setSelectedQuality] = React.useState<string>('');
+    const [audioFormat, setAudioFormat] = React.useState<AudioFormat>('mp3');
+    const [photoMode, setPhotoMode] = React.useState<'screenshot' | 'thumbnail'>(hasTimestamp ? 'screenshot' : 'thumbnail');
     const [customOutputDir, setCustomOutputDir] = React.useState<string>('');
     const [isSelectingFolder, setIsSelectingFolder] = React.useState(false);
     const [turboEnabled, setTurboEnabled] = React.useState<boolean>(defaultTurboEnabled);
-    const [adaptiveTurbo, setAdaptiveTurbo] = React.useState<boolean>(defaultAdaptiveTurbo);
-    const [turboConnections, setTurboConnections] = React.useState<number>(defaultTurboConnections);
-    const [photoTimestampMode, setPhotoTimestampMode] = React.useState<'screenshot' | 'thumbnail'>('screenshot');
 
     // Keep quality array stable across rerenders so selection does not reset while user clicks.
-    const sortedQualities = React.useMemo(() => [...availableQualities].sort((a, b) => b - a), [availableQualities]);
+    const qualities = videoInfo?.videoQualities;
+    const sortedQualities = React.useMemo(() => [...(qualities || [])].sort((a, b) => b - a), [qualities]);
+    const qualityDetails = videoInfo?.videoQualityDetails || {};
+    const qualitySizes = videoInfo?.videoQualitySizes || {};
 
-    // Set default selected quality from settings when possible, else fallback to highest.
+    // Default to the preferred quality from settings, else the highest available.
     React.useEffect(() => {
-        if (sortedQualities.length > 0 && !selectedQuality) {
-            const preferred = Number(defaultQuality);
-            if (Number.isFinite(preferred) && sortedQualities.includes(preferred)) {
-                setSelectedQuality(String(preferred));
-            } else {
-                setSelectedQuality(sortedQualities[0].toString());
-            }
-        }
+        if (sortedQualities.length === 0) return;
+        if (selectedQuality && sortedQualities.includes(Number(selectedQuality))) return;
+        const preferred = Number(defaultQuality);
+        setSelectedQuality(String(Number.isFinite(preferred) && sortedQualities.includes(preferred) ? preferred : sortedQualities[0]));
     }, [sortedQualities, selectedQuality, defaultQuality]);
 
-    // Reset selection when modal opens
     React.useEffect(() => {
-        if (isOpen) {
-            const preferred = Number(defaultQuality);
-            if (sortedQualities.length > 0) {
-                if (Number.isFinite(preferred) && sortedQualities.includes(preferred)) {
-                    setSelectedQuality(String(preferred));
-                } else {
-                    setSelectedQuality(sortedQualities[0].toString());
-                }
-            }
-            setSelectedFormat('video');
-            setCustomOutputDir('');
-            setTurboEnabled(defaultTurboEnabled);
-            setAdaptiveTurbo(defaultAdaptiveTurbo);
-            setTurboConnections(defaultTurboConnections);
-            setPhotoTimestampMode('screenshot');
-        }
-    }, [isOpen, sortedQualities, defaultQuality, defaultTurboEnabled, defaultAdaptiveTurbo, defaultTurboConnections]);
+        setPhotoMode(hasTimestamp ? 'screenshot' : 'thumbnail');
+    }, [hasTimestamp]);
 
-    const handleConfirm = () => {
-        onSelect(
-            selectedFormat,
-            selectedFormat === 'video' ? selectedQuality : undefined,
-            customOutputDir || undefined,
-            {
-                enabled: turboEnabled,
-                adaptive: adaptiveTurbo,
-                connections: turboConnections,
-            },
-            selectedFormat === 'photo' ? photoTimestampMode : undefined
-        );
+    const audioOriginal = videoInfo?.audioDetail;
+    const mp3EstimateBytes = videoInfo?.duration ? (videoInfo.duration * MP3_ESTIMATE_BITS_PER_SECOND) / 8 : undefined;
+
+    const describeQuality = (quality: number) => {
+        const detail = qualityDetails[String(quality)];
+        const size = detail
+            ? formatFileSize(detail.bytes, detail.exact)
+            : formatFileSize(qualitySizes[String(quality)]);
+        return [size, detail?.ext?.toUpperCase()].filter(Boolean).join(' · ') || t('formatSelector.sizeUnknown', 'Size unknown');
     };
+
+    const expectedBytesFor = (): number | undefined => {
+        if (selectedFormat === 'video') {
+            const detail = qualityDetails[selectedQuality];
+            return detail?.exact ? detail.bytes : undefined;
+        }
+        if (selectedFormat === 'audio' && audioFormat === 'original') {
+            return audioOriginal?.exact ? audioOriginal.bytes : undefined;
+        }
+        return undefined;
+    };
+
+    const handleDownload = () => {
+        const turboOverride = {
+            enabled: turboEnabled,
+            adaptive: defaultAdaptiveTurbo,
+            connections: defaultTurboConnections,
+        };
+        if (isMediaList) {
+            const chosen = mediaItems.filter((item) => selectedItems.has(item.index));
+            if (chosen.length === 0) return;
+            const allDirect = chosen.every((item) => item.direct);
+            onDownload({
+                format: 'gallery',
+                galleryIndices: allDirect ? undefined : chosen.map((item) => item.index),
+                directUrls: allDirect ? chosen.map((item) => item.url) : undefined,
+                outputDir: customOutputDir || undefined,
+                turboOverride,
+                expectedBytes: chosen.every((item) => item.bytes)
+                    ? chosen.reduce((sum, item) => sum + (item.bytes || 0), 0)
+                    : undefined,
+            });
+            return;
+        }
+        onDownload({
+            format: selectedFormat,
+            quality: selectedFormat === 'video' ? (selectedQuality || undefined) : undefined,
+            audioFormat: selectedFormat === 'audio' ? audioFormat : undefined,
+            photoTimestampMode: selectedFormat === 'photo' ? photoMode : undefined,
+            outputDir: customOutputDir || undefined,
+            turboOverride,
+            expectedBytes: expectedBytesFor(),
+        });
+    };
+
+    React.useImperativeHandle(ref, () => ({ submit: handleDownload }));
 
     const handlePickOutputFolder = async () => {
         if (!window.electronAPI?.pickDownloadLocationOnce) return;
@@ -121,357 +224,239 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
         }
     };
 
-    // Get label for selected quality
-    const selectedQualityInfo = selectedQuality ? getQualityLabel(parseInt(selectedQuality)) : null;
+    const downloadLabel = isMediaList
+        ? (mediaItems.length === 1
+            ? (mediaItems[0].kind === 'image' ? t('formatSelector.image') : t('formatSelector.video'))
+            : t('formatSelector.itemsOf', { count: selectedItems.size, total: mediaItems.length }))
+        : selectedFormat === 'video'
+            ? (selectedQuality ? `${selectedQuality}p` : t('formatSelector.bestAvailable'))
+            : selectedFormat === 'audio'
+                ? (audioFormat === 'mp3' ? 'MP3' : t('formatSelector.original'))
+                : (photoMode === 'screenshot' ? t('formatSelector.frame') : t('formatSelector.thumbnail'));
 
-    const formatBytes = (bytes?: number): string => {
-        if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return 'Size unknown';
-        const units = ['B', 'KB', 'MB', 'GB'];
-        let value = bytes;
-        let unitIndex = 0;
-        while (value >= 1024 && unitIndex < units.length - 1) {
-            value /= 1024;
-            unitIndex += 1;
-        }
-        const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-        return `~${value.toFixed(precision)} ${units[unitIndex]}`;
-    };
+    const duplicateLabel = duplicate ? [
+        new Date(duplicate.completedAt).toLocaleDateString(i18n.language, { dateStyle: 'medium' }),
+        duplicate.format === 'video' && duplicate.quality && /^\d+$/.test(duplicate.quality) ? `${duplicate.quality}p` : undefined,
+        duplicate.fileExt?.toUpperCase() || (duplicate.format === 'audio' ? t('formatSelector.audio') : duplicate.format === 'photo' ? t('formatSelector.photo') : undefined),
+    ].filter(Boolean).join(' · ') : undefined;
+
+    const tabs = [
+        { id: 'video' as const, icon: Video, label: t('formatSelector.video') },
+        { id: 'audio' as const, icon: Music, label: t('formatSelector.audio') },
+        { id: 'photo' as const, icon: ImageIcon, label: t('formatSelector.photo') },
+    ].filter((tab) => !isAudioOnly || tab.id === 'audio');
+
+    const chipClass = (selected: boolean, disabled = false) => cn(
+        'flex flex-col items-start gap-0.5 px-3 py-2 rounded-xl border text-left transition-colors duration-150',
+        disabled
+            ? 'border-foreground/5 bg-secondary/20 text-foreground/30 cursor-not-allowed'
+            : selected
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-secondary/50 border-foreground/5 hover:bg-secondary/80 text-foreground'
+    );
+    const chipSubClass = (selected: boolean) => cn('text-[11px]', selected ? 'text-primary-foreground/80' : 'text-foreground/50');
 
     return (
-        <AnimatePresence>
-            {isOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
-                    {/* Backdrop */}
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-                        onClick={onClose}
-                    />
-
-                    {/* Modal */}
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                        className="relative bg-card border border-foreground/10 rounded-3xl p-6 w-full max-w-md shadow-2xl overflow-hidden max-h-[min(92vh,860px)] flex flex-col"
-                    >
-                        {/* Decorative background glow */}
-                        <div className="absolute -top-20 -right-20 w-40 h-40 bg-primary/20 blur-[80px] rounded-full pointer-events-none" />
-                        <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-accent/20 blur-[80px] rounded-full pointer-events-none" />
-
-                        {/* Header */}
-                        <div className="flex items-center justify-between mb-6 relative z-10">
-                            <div>
-                                <h2 className="text-xl font-bold text-foreground">{t('formatSelector.title')}</h2>
-                                <p className="text-xs text-foreground/60">{t('formatSelector.selectQuality', 'Select quality options for your download')}</p>
-                            </div>
-                            <button
-                                onClick={onClose}
-                                className="p-2 rounded-full hover:bg-foreground/10 transition-colors text-foreground/60 hover:text-foreground"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
-
-                        <div className="relative z-10 flex-1 min-h-0 overflow-y-auto pr-1">
-                            {/* Format Type Toggle */}
-                            <div className="flex gap-3 mb-6">
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedFormat('video')}
-                                    className={cn(
-                                        "flex-1 flex items-center justify-center gap-3 py-4 rounded-xl border transition-all duration-200 relative overflow-hidden group",
-                                        selectedFormat === 'video'
-                                            ? "bg-primary/12 border-primary text-primary"
-                                            : "bg-secondary/40 border-transparent text-foreground/60 hover:bg-secondary/60"
-                                    )}
-                                >
-                                    <div className={cn("absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-br from-white/5 to-transparent")} />
-                                    <Video className="w-5 h-5" />
-                                    <span className="font-semibold">{t('formatSelector.video')}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedFormat('audio')}
-                                    className={cn(
-                                        "flex-1 flex items-center justify-center gap-3 py-4 rounded-xl border transition-all duration-200 relative overflow-hidden group",
-                                        selectedFormat === 'audio'
-                                            ? "bg-accent/12 border-accent text-foreground"
-                                            : "bg-secondary/40 border-transparent text-foreground/60 hover:bg-secondary/60"
-                                    )}
-                                >
-                                    <div className={cn("absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-br from-white/5 to-transparent")} />
-                                    <Music className="w-5 h-5" />
-                                    <span className="font-semibold">{t('formatSelector.audio')}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedFormat('photo')}
-                                    className={cn(
-                                        "flex-1 flex items-center justify-center gap-3 py-4 rounded-xl border transition-all duration-200 relative overflow-hidden group",
-                                        selectedFormat === 'photo'
-                                            ? "bg-warning/15 border-warning text-foreground"
-                                            : "bg-secondary/40 border-transparent text-foreground/60 hover:bg-secondary/60"
-                                    )}
-                                >
-                                    <div className={cn("absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-br from-white/5 to-transparent")} />
-                                    <div className="relative">
-                                        <Video className="w-5 h-5 absolute rotate-90 scale-75 opacity-0" /> {/* Hack for icon alignment if needed, but using Camera/Image icon is better if available, falling back to text for now or re-using Video icon with modifications if lucide-react doesn't have Image imported. Let's check imports. */}
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-image"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg>
-                                    </div>
-                                    <span className="font-semibold">{t('formatSelector.photo')}</span>
-                                </button>
-                            </div>
-
-                            <div className="mb-4 rounded-xl border border-foreground/10 bg-secondary/35 p-3">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <p className="text-xs font-semibold uppercase tracking-wider text-foreground/60">{t('formatSelector.outputFolder')}</p>
-                                        <p className="text-xs text-foreground/55 truncate">
-                                            {customOutputDir || t('formatSelector.defaultFolder')}
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {customOutputDir && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setCustomOutputDir('')}
-                                                className="px-2 py-1 text-[11px] rounded-md bg-foreground/10 hover:bg-foreground/15 text-foreground/70"
-                                            >
-                                                {t('formatSelector.defaultBtn', 'Default')}
-                                            </button>
-                                        )}
-                                        <button
-                                            type="button"
-                                            onClick={handlePickOutputFolder}
-                                            disabled={isSelectingFolder}
-                                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-primary/15 hover:bg-primary/25 text-primary text-xs disabled:opacity-60"
-                                        >
-                                            <FolderOpen className="w-3.5 h-3.5" />
-                                            {isSelectingFolder ? t('formatSelector.choosing', 'Choosing...') : t('formatSelector.change')}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="mb-4 rounded-xl border border-foreground/10 bg-secondary/35 p-3">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <p className="text-xs font-semibold uppercase tracking-wider text-foreground/60">{t('formatSelector.turboDownload')}</p>
-                                        <p className="text-xs text-foreground/55">
-                                            {t('formatSelector.turboOverride', 'Override global turbo settings only for this item.')}
-                                        </p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setTurboEnabled(v => !v)}
-                                        className={cn(
-                                            'px-2.5 py-1.5 rounded-md text-xs font-semibold border transition-colors',
-                                            turboEnabled
-                                                ? 'bg-primary/15 border-primary/35 text-primary'
-                                                : 'bg-foreground/5 border-foreground/15 text-foreground/60'
-                                        )}
-                                    >
-                                        {turboEnabled ? 'On' : 'Off'}
-                                    </button>
-                                </div>
-
-                                {turboEnabled && (
-                                    <div className="mt-3 grid grid-cols-2 gap-2">
-                                        <select
-                                            value={adaptiveTurbo ? 'auto' : 'manual'}
-                                            onChange={(e) => setAdaptiveTurbo(e.target.value === 'auto')}
-                                            className="px-2.5 py-1.5 rounded-md bg-secondary border border-foreground/10 text-xs focus:outline-none focus:border-foreground/35"
-                                        >
-                                            <option value="auto">{t('formatSelector.adaptive')}</option>
-                                            <option value="manual">{t('formatSelector.manualMode', 'Manual')}</option>
-                                        </select>
-
-                                        <select
-                                            value={String(turboConnections)}
-                                            onChange={(e) => setTurboConnections(parseInt(e.target.value, 10) || 8)}
-                                            disabled={adaptiveTurbo}
-                                            className="px-2.5 py-1.5 rounded-md bg-secondary border border-foreground/10 text-xs focus:outline-none focus:border-foreground/35 disabled:opacity-60"
-                                        >
-                                            <option value="4">4 {t('formatSelector.connections')}</option>
-                                            <option value="8">8 {t('formatSelector.connections')}</option>
-                                            <option value="12">12 {t('formatSelector.connections')}</option>
-                                            <option value="16">16 {t('formatSelector.connections')}</option>
-                                        </select>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Quality Selection (Video only) */}
-                            <div className="min-h-[140px]">
-                                <AnimatePresence mode="wait">
-                                    {selectedFormat === 'video' ? (
-                                        <motion.div
-                                            key="video-options"
-                                            initial={{ opacity: 0, x: -10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            exit={{ opacity: 0, x: 10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="mb-6"
-                                        >
-                                            <label className="block text-xs font-semibold uppercase tracking-wider text-foreground/60 mb-3">
-                                                {t('formatSelector.quality')}
-                                            </label>
-                                            <p className="text-[11px] text-foreground/55 mb-3">
-                                                {t('formatSelector.mobileBadge', 'Badge:')} <span className="font-semibold text-success">{t('formatSelector.mobile')}</span> {t('formatSelector.mobileMeaning', 'means smoother playback on most phones.')}
-                                            </p>
-                                            {sortedQualities.length === 0 && isLoadingQualities ? (
-                                                <div className="text-sm text-foreground/50 flex items-center justify-center gap-2 py-8 bg-secondary/40 rounded-xl border border-foreground/10 border-dashed">
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                    {t('urlPreview.fetchingInfo')}
-                                                </div>
-                                            ) : sortedQualities.length === 0 ? (
-                                                <div className="text-sm text-foreground/50 text-center py-6 bg-secondary/40 rounded-xl border border-foreground/10 border-dashed">
-                                                    {t('formatSelector.noQualities', 'No explicit quality options found.')}<br />{t('formatSelector.bestAuto', 'Best quality will be selected automatically.')}
-                                                </div>
-                                            ) : (
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    {sortedQualities.map((quality) => {
-                                                        const { label, sublabel } = getQualityLabel(quality);
-                                                        return (
-                                                            <button
-                                                                type="button"
-                                                                key={quality}
-                                                                onClick={() => setSelectedQuality(quality.toString())}
-                                                                className={cn(
-                                                                    "flex flex-col items-center py-2.5 rounded-xl border transition-all duration-150",
-                                                                    selectedQuality === quality.toString()
-                                                                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                                                                        : "bg-secondary/50 border-transparent hover:bg-secondary/70 text-foreground/70"
-                                                                )}
-                                                            >
-                                                                <span className="font-bold text-sm">{label}</span>
-                                                                <span className={cn("text-[10px]", selectedQuality === quality.toString() ? "text-primary-foreground/70" : "text-foreground/50")}>{sublabel}</span>
-                                                                <span className={cn("text-[10px]", selectedQuality === quality.toString() ? "text-primary-foreground/85" : "text-foreground/45")}>{formatBytes(qualitySizes[quality.toString()])}</span>
-                                                                {isMobileFriendlyQuality(quality) && (
-                                                                    <span
-                                                                        className={cn(
-                                                                            "mt-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide",
-                                                                            selectedQuality === quality.toString()
-                                                                                ? "bg-primary-foreground/25 text-primary-foreground"
-                                                                                : "bg-success/20 text-success"
-                                                                        )}
-                                                                    >
-                                                                        {t('formatSelector.mobile')}
-                                                                    </span>
-                                                                )}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
-                                        </motion.div>
-                                    ) : selectedFormat === 'audio' ? (
-                                        <motion.div
-                                            key="audio-info"
-                                            initial={{ opacity: 0, x: 10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            exit={{ opacity: 0, x: -10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="mb-6 p-5 bg-accent/10 rounded-2xl border border-accent/20 flex flex-col items-center text-center gap-3"
-                                        >
-                                            <div className="p-3 bg-accent/20 rounded-full">
-                                                <Music className="w-6 h-6 text-foreground" />
-                                            </div>
-                                            <div>
-                                                <h3 className="text-foreground font-medium mb-1">{t('formatSelector.audioTitle', 'High Quality Video to MP3')}</h3>
-                                                <p className="text-xs text-foreground/60">
-                                                    {t('formatSelector.audioDesc', "We'll extract the audio stream with the highest available bitrate.")}
-                                                </p>
-                                            </div>
-                                        </motion.div>
-                                    ) : (
-                                        <motion.div
-                                            key="photo-info"
-                                            initial={{ opacity: 0, x: 10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            exit={{ opacity: 0, x: -10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="mb-6 p-5 bg-warning/10 rounded-2xl border border-warning/20 flex flex-col items-center text-center gap-3"
-                                        >
-                                            <div className="p-3 bg-warning/20 rounded-full">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-foreground"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg>
-                                            </div>
-                                            <div>
-                                                <h3 className="text-foreground font-medium mb-1">{t('formatSelector.photoTitle', 'High Quality Photo')}</h3>
-                                                <p className="text-xs text-foreground/60">
-                                                    {t('formatSelector.photoDesc', 'Download the best thumbnail, or capture a screenshot when the URL includes a time.')}
-                                                </p>
-                                            </div>
-
-                                            {hasTimestampInUrl && (
-                                                <div className="w-full mt-2 rounded-xl border border-warning/25 bg-warning/5 p-3">
-                                                    <p className="text-[11px] uppercase tracking-wide text-foreground/60 mb-2">{t('formatSelector.timestampDetected', 'Timestamp Link Detected')}</p>
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setPhotoTimestampMode('screenshot')}
-                                                            className={cn(
-                                                                'px-2.5 py-2 rounded-lg text-xs border transition-colors',
-                                                                photoTimestampMode === 'screenshot'
-                                                                    ? 'bg-warning/25 border-warning text-foreground'
-                                                                    : 'bg-secondary/40 border-foreground/10 text-foreground/65 hover:bg-secondary/60'
-                                                            )}
-                                                        >
-                                                            {t('formatSelector.screenshot')}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setPhotoTimestampMode('thumbnail')}
-                                                            className={cn(
-                                                                'px-2.5 py-2 rounded-lg text-xs border transition-colors',
-                                                                photoTimestampMode === 'thumbnail'
-                                                                    ? 'bg-warning/25 border-warning text-foreground'
-                                                                    : 'bg-secondary/40 border-foreground/10 text-foreground/65 hover:bg-secondary/60'
-                                                            )}
-                                                        >
-                                                            {t('formatSelector.thumbnailOnly')}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-                        </div>
-
-                        {/* Confirm Button */}
-                        <button
-                            onClick={handleConfirm}
-                            className={cn(
-                                "relative z-10 w-full py-3.5 mt-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 transform active:scale-98 shadow-md shrink-0",
-                                selectedFormat === 'audio'
-                                    ? "bg-accent hover:bg-accent/90 text-primary-foreground"
-                                    : selectedFormat === 'photo'
-                                        ? "bg-warning hover:bg-warning/90 text-primary-foreground"
-                                        : "bg-primary hover:bg-primary/90 text-primary-foreground"
-                            )}
-                        >
-                            <Check className="w-5 h-5" />
-                            <span>
-                                {t('formatSelector.confirm')} {selectedFormat === 'audio'
-                                    ? t('formatSelector.audio')
-                                    : selectedFormat === 'photo'
-                                        ? (hasTimestampInUrl && photoTimestampMode === 'screenshot' ? t('formatSelector.screenshot') : t('formatSelector.photo'))
-                                        : selectedQualityInfo
-                                            ? `${selectedQualityInfo.label} (${selectedQualityInfo.sublabel})`
-                                            : t('formatSelector.video')
-                                }
-                            </span>
-                        </button>
-                    </motion.div>
+        <div className="flex flex-col gap-3">
+            {isMediaList && mediaItems.length === 1 && (
+                <div className="flex items-center gap-2 text-xs text-foreground/60">
+                    {mediaItems[0].kind === 'image' ? <ImageIcon className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+                    <span className="font-medium text-foreground">
+                        {mediaItems[0].kind === 'image' ? t('formatSelector.image') : t('formatSelector.video')}
+                    </span>
+                    {describeItem(mediaItems[0]) && <span>{describeItem(mediaItems[0])}</span>}
                 </div>
             )}
-        </AnimatePresence>
-    );
-};
 
-export default FormatSelector;
+            {isMediaList && mediaItems.length > 1 && (
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between text-xs">
+                        <span className="text-foreground/60">
+                            {t('formatSelector.selectedOf', { count: selectedItems.size, total: mediaItems.length })}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setSelectedItems(new Set(allSelected ? [] : mediaItems.map((item) => item.index)))}
+                            className="text-foreground/60 hover:text-foreground font-medium"
+                        >
+                            {allSelected ? t('formatSelector.selectNone') : t('formatSelector.selectAll')}
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2 max-h-[280px] overflow-y-auto pr-1">
+                        {mediaItems.map((item) => (
+                            <MediaTile
+                                key={item.index}
+                                item={item}
+                                selected={selectedItems.has(item.index)}
+                                onToggle={() => toggleItem(item.index)}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {!isMediaList && (
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-secondary/40 w-fit" role="tablist">
+                {tabs.map(({ id, icon: Icon, label }) => (
+                    <button
+                        key={id}
+                        type="button"
+                        role="tab"
+                        aria-selected={selectedFormat === id}
+                        onClick={() => setSelectedFormat(id)}
+                        className={cn(
+                            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                            selectedFormat === id ? 'bg-card text-foreground shadow-sm' : 'text-foreground/55 hover:text-foreground'
+                        )}
+                    >
+                        <Icon className="w-3.5 h-3.5" />
+                        {label}
+                    </button>
+                ))}
+            </div>
+            )}
+
+            {!isMediaList && selectedFormat === 'video' && (
+                sortedQualities.length === 0 ? (
+                    <div className="text-xs text-foreground/50 flex items-center gap-2 py-3">
+                        {isLoadingQualities ? (
+                            <><Loader2 className="w-3.5 h-3.5 animate-spin" />{t('formatSelector.loadingQualities')}</>
+                        ) : (
+                            t('formatSelector.bestAuto', 'Best quality will be selected automatically.')
+                        )}
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2">
+                        {sortedQualities.map((quality) => {
+                            const selected = selectedQuality === String(quality);
+                            return (
+                                <button
+                                    type="button"
+                                    key={quality}
+                                    onClick={() => setSelectedQuality(String(quality))}
+                                    className={chipClass(selected)}
+                                >
+                                    <span className="font-semibold text-sm">{quality}p</span>
+                                    <span className={chipSubClass(selected)}>{describeQuality(quality)}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )
+            )}
+
+            {!isMediaList && selectedFormat === 'audio' && (
+                <div className="grid grid-cols-2 gap-2 max-w-sm">
+                    <button type="button" onClick={() => setAudioFormat('mp3')} className={chipClass(audioFormat === 'mp3')}>
+                        <span className="font-semibold text-sm">MP3</span>
+                        <span className={chipSubClass(audioFormat === 'mp3')}>
+                            {formatFileSize(mp3EstimateBytes) || t('formatSelector.sizeUnknown', 'Size unknown')}
+                        </span>
+                    </button>
+                    <button type="button" onClick={() => setAudioFormat('original')} className={chipClass(audioFormat === 'original')}>
+                        <span className="font-semibold text-sm">{t('formatSelector.original')}</span>
+                        <span className={chipSubClass(audioFormat === 'original')}>
+                            {audioOriginal
+                                ? [formatFileSize(audioOriginal.bytes, audioOriginal.exact), audioOriginal.ext?.toUpperCase()].filter(Boolean).join(' · ')
+                                : isLoadingQualities ? t('formatSelector.loadingQualities') : t('formatSelector.noConversion')}
+                        </span>
+                    </button>
+                </div>
+            )}
+
+            {!isMediaList && selectedFormat === 'photo' && (
+                <div className="flex flex-col gap-2">
+                    <div className="grid grid-cols-2 gap-2 max-w-sm">
+                        <button type="button" onClick={() => setPhotoMode('thumbnail')} className={chipClass(photoMode === 'thumbnail')}>
+                            <span className="font-semibold text-sm">{t('formatSelector.thumbnail')}</span>
+                            <span className={chipSubClass(photoMode === 'thumbnail')}>{t('formatSelector.thumbnailDesc')}</span>
+                        </button>
+                        <button
+                            type="button"
+                            disabled={!hasTimestamp}
+                            onClick={() => setPhotoMode('screenshot')}
+                            className={chipClass(photoMode === 'screenshot', !hasTimestamp)}
+                        >
+                            <span className="font-semibold text-sm">{t('formatSelector.frame')}</span>
+                            <span className={chipSubClass(photoMode === 'screenshot')}>
+                                {hasTimestamp ? t('formatSelector.frameAt', { time: formatClockTime(timestampSeconds ?? 0) }) : t('formatSelector.frameNoTime')}
+                            </span>
+                        </button>
+                    </div>
+                    {!hasTimestamp && (
+                        <p className="text-[11px] text-foreground/45">{t('formatSelector.frameTip')}</p>
+                    )}
+                </div>
+            )}
+
+            {duplicateLabel && (
+                <div className="flex items-center gap-2 text-xs text-warning bg-warning/10 border border-warning/20 rounded-lg px-3 py-2">
+                    <HistoryIcon className="w-3.5 h-3.5 shrink-0" />
+                    <span>{t('formatSelector.alreadyDownloaded', { details: duplicateLabel })}</span>
+                </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                    {/* Save location for this download: folder name shows once one is chosen. */}
+                    <button
+                        type="button"
+                        onClick={() => void handlePickOutputFolder()}
+                        disabled={isSelectingFolder}
+                        className={cn(
+                            'flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-xs transition-colors min-w-0 disabled:opacity-60',
+                            customOutputDir
+                                ? 'border-primary/35 bg-primary/10 text-foreground'
+                                : 'border-foreground/10 text-foreground/55 hover:text-foreground hover:bg-foreground/5'
+                        )}
+                        title={`${t('formatSelector.outputFolder')}: ${customOutputDir || t('formatSelector.defaultFolder')}`}
+                        aria-label={t('formatSelector.outputFolder')}
+                    >
+                        {isSelectingFolder ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <FolderOpen className="w-4 h-4 shrink-0" />}
+                        {customOutputDir && <span className="truncate max-w-[160px]">{folderName(customOutputDir)}</span>}
+                    </button>
+                    {customOutputDir && (
+                        <button
+                            type="button"
+                            onClick={() => setCustomOutputDir('')}
+                            className="p-1.5 rounded-md text-foreground/45 hover:text-foreground hover:bg-foreground/5"
+                            title={t('formatSelector.defaultBtn', 'Default')}
+                            aria-label={t('formatSelector.defaultBtn', 'Default')}
+                        >
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    )}
+                    {!isMediaList && <button
+                        type="button"
+                        role="switch"
+                        aria-checked={turboEnabled}
+                        onClick={() => setTurboEnabled(v => !v)}
+                        className={cn(
+                            'flex items-center justify-center h-9 w-9 rounded-lg border transition-colors',
+                            turboEnabled
+                                ? 'border-primary/35 bg-primary/10 text-foreground'
+                                : 'border-foreground/10 text-foreground/55 hover:text-foreground hover:bg-foreground/5'
+                        )}
+                        title={`${t('formatSelector.turboDownload')}: ${turboEnabled ? t('formatSelector.on') : t('formatSelector.off')} · ${t('formatSelector.turboOverride')}`}
+                        aria-label={t('formatSelector.turboDownload')}
+                    >
+                        <Gauge className="w-4 h-4" />
+                    </button>}
+                </div>
+                <button
+                    type="button"
+                    onClick={handleDownload}
+                    disabled={isMediaList && selectedItems.size === 0}
+                    className="h-10 px-5 rounded-xl font-medium bg-primary hover:bg-primary/90 text-primary-foreground flex items-center gap-2 shadow-md transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {duplicate ? t('formatSelector.downloadAgain') : t('formatSelector.confirm')} {downloadLabel}
+                    <ArrowRight className="w-4 h-4" />
+                </button>
+            </div>
+        </div>
+    );
+});
+
+FormatPanel.displayName = 'FormatPanel';
+
+export default FormatPanel;

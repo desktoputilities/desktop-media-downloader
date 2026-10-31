@@ -1,5 +1,34 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { removeAllTerminalDownloads, removeRelatedTerminalDownloads } from './downloadState';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import {
+    buildRestartOptions,
+    createThrottledWriter,
+    DEFAULT_MAX_PARALLEL_DOWNLOADS,
+    findHistoryMatch,
+    getMetadataCacheKey,
+    pickQueuedToStart,
+    PLACEHOLDER_TITLE,
+    removeAllTerminalDownloads,
+    removeRelatedTerminalDownloads,
+    trimCompletedDownloads,
+} from './downloadState';
+
+export type AudioFormat = 'mp3' | 'original';
+// 'gallery' saves chosen items of an image post or carousel.
+export type DownloadFormat = 'video' | 'audio' | 'photo' | 'gallery';
+
+export interface MediaItem {
+    // 1-based position in the post.
+    index: number;
+    kind: 'video' | 'audio' | 'image';
+    url: string;
+    ext?: string;
+    width?: number;
+    height?: number;
+    bytes?: number;
+    thumbnail?: string;
+    // A plain file URL; downloaded directly instead of through gallery-dl.
+    direct?: boolean;
+}
 
 export interface DownloadItem {
     id: string;
@@ -7,16 +36,32 @@ export interface DownloadItem {
     title: string;
     thumbnail?: string;
     progress: number;
-    status: 'pending' | 'downloading' | 'completed' | 'error' | 'paused';
+    // 'queued' waits for a free slot; 'pending' is preparing in the main process.
+    status: 'queued' | 'pending' | 'downloading' | 'completed' | 'error' | 'paused';
     speed?: string;
+    speedBps?: number;
     eta?: string;
-    format?: 'video' | 'audio' | 'photo';
+    format?: DownloadFormat;
     quality?: string;
+    galleryIndices?: number[];
+    directUrls?: string[];
     outputDir?: string;
     enableTurboDownload?: boolean;
     adaptiveTurboDownload?: boolean;
     turboConnections?: number;
     photoTimestampMode?: 'screenshot' | 'thumbnail';
+    audioFormat?: AudioFormat;
+    // Exact size from the format panel; lets progress cover every stream.
+    expectedBytes?: number;
+    fileNameTemplate?: string;
+    // Set from the finished file, so labels show what was actually saved.
+    filePath?: string;
+    fileName?: string;
+    fileSize?: number;
+    fileExt?: string;
+    // Several files from one post.
+    fileCount?: number;
+    totalBytes?: number;
     error?: string;
     completedAt?: string;
 }
@@ -31,6 +76,13 @@ export interface AddDownloadOptions {
     outputDir?: string;
     turboOverride?: PerDownloadTurboOptions;
     photoTimestampMode?: 'screenshot' | 'thumbnail';
+    audioFormat?: AudioFormat;
+    expectedBytes?: number;
+    galleryIndices?: number[];
+    directUrls?: string[];
+    // Known metadata (playlists, search, the preview) skips another info call.
+    title?: string;
+    thumbnail?: string;
 }
 
 export interface HistoryItem {
@@ -38,8 +90,14 @@ export interface HistoryItem {
     title: string;
     url: string;
     thumbnail?: string;
-    format: 'video' | 'audio' | 'photo';
+    format: DownloadFormat;
     quality?: string;
+    filePath?: string;
+    fileName?: string;
+    fileSize?: number;
+    fileExt?: string;
+    fileCount?: number;
+    totalBytes?: number;
     completedAt: string;
 }
 
@@ -56,10 +114,19 @@ export interface VideoInfo {
     extractor?: string;
     videoQualities?: number[];
     videoQualitySizes?: Record<string, number>;
+    // Formats yt-dlp would actually download for each quality, when resolved.
+    videoQualityDetails?: Record<string, { bytes: number; exact: boolean; ext?: string }>;
+    // The audio stream an "Original" audio download saves, without conversion.
+    audioDetail?: { bytes: number; exact: boolean; ext?: string };
     hasAudio?: boolean;
     extractedUrl?: string;
     extractedSources?: Record<string, string>;
     isPartial?: boolean;
+    // What the link holds; 'image' and 'gallery' come with items instead of qualities.
+    mediaKind?: 'video' | 'audio' | 'image' | 'gallery';
+    items?: MediaItem[];
+    // A profile or feed rather than one post.
+    isCollection?: boolean;
 }
 
 export interface DownloadSettings {
@@ -76,6 +143,7 @@ export interface DownloadSettings {
     enableTurboDownload: boolean;
     adaptiveTurboDownload: boolean;
     turboConnections: number;
+    maxParallelDownloads: number;
     // File naming
     fileNameTemplate: string;
     // Notifications
@@ -83,10 +151,11 @@ export interface DownloadSettings {
 }
 
 interface DownloadContextType {
+    findInHistory: (url: string) => HistoryItem | undefined;
     downloads: DownloadItem[];
     history: HistoryItem[];
     settings: DownloadSettings;
-    addDownload: (url: string, format?: 'video' | 'audio' | 'photo', quality?: string, outputDirOrOptions?: string | AddDownloadOptions) => Promise<void>;
+    addDownload: (url: string, format?: DownloadFormat, quality?: string, outputDirOrOptions?: string | AddDownloadOptions) => Promise<void>;
     removeDownload: (id: string) => void;
     cancelDownload: (id: string) => Promise<void>;
     pauseDownload: (id: string) => Promise<void>;
@@ -100,7 +169,8 @@ interface DownloadContextType {
     clearHistory: () => void;
     removeFromHistory: (id: string) => void;
     updateSettings: (settings: Partial<DownloadSettings>) => void;
-    getVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>;
+    // On failure, errorKind says why ('login', 'blocked', ...) and site names the site to sign in to.
+    getVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string; errorKind?: string; needsLogin?: boolean; cookiesExpired?: boolean; site?: string }>;
     getFastVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>;
     // New methods
     searchVideos: (query: string, platform: string, count?: number) => Promise<any>;
@@ -114,7 +184,9 @@ interface DownloadContextType {
 const HISTORY_STORAGE_KEY = 'desktop-media-download-history';
 const DOWNLOADS_STORAGE_KEY = 'desktop-media-downloads';
 const SETTINGS_STORAGE_KEY = 'desktop-media-settings';
-const SAVE_DEBOUNCE_MS = 1000;
+const SAVE_THROTTLE_MS = 1000;
+// Progress text and bars read fine at 4 updates/s; per-frame flushes re-rendered every consumer.
+const PROGRESS_FLUSH_MS = 250;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const QUICK_CACHE_TTL_MS = 30 * 60 * 1000;
 
@@ -132,49 +204,37 @@ const defaultSettings: DownloadSettings = {
     enableTurboDownload: false,
     adaptiveTurboDownload: false,
     turboConnections: 8,
+    maxParallelDownloads: DEFAULT_MAX_PARALLEL_DOWNLOADS,
     // File naming
     fileNameTemplate: '{title}',
     // Notifications
     enableNotifications: true,
 };
 
-const DownloadContext = createContext<DownloadContextType | undefined>(undefined);
-
-const getMetadataCacheKey = (rawUrl: string): string => {
+const createStorageWriter = <T,>(key: string) => createThrottledWriter<T>((value) => {
     try {
-        const parsed = new URL(rawUrl);
-        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-        const isYouTube = host === 'youtu.be' || host === 'youtube.com' || host.endsWith('.youtube.com');
-
-        if (isYouTube) {
-            const pathParts = parsed.pathname.split('/').filter(Boolean);
-            const id = host === 'youtu.be'
-                ? pathParts[0]
-                : parsed.searchParams.get('v') || (['shorts', 'embed', 'live'].includes(pathParts[0]) ? pathParts[1] : undefined);
-            if (id) return `youtube:${id}`;
-        }
-
-        parsed.searchParams.delete('t');
-        parsed.searchParams.delete('start');
-        parsed.searchParams.delete('time_continue');
-        parsed.hash = '';
-        return parsed.toString();
-    } catch {
-        return rawUrl.trim();
+        localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+        console.error(`Failed to save ${key} to localStorage:`, e);
     }
-};
+}, SAVE_THROTTLE_MS);
+
+const downloadsWriter = createStorageWriter<DownloadItem[]>(DOWNLOADS_STORAGE_KEY);
+const historyWriter = createStorageWriter<HistoryItem[]>(HISTORY_STORAGE_KEY);
+const settingsWriter = createStorageWriter<DownloadSettings>(SETTINGS_STORAGE_KEY);
+
+const DownloadContext = createContext<DownloadContextType | undefined>(undefined);
 
 export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [downloads, setDownloads] = useState<DownloadItem[]>([]);
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [settings, setSettings] = useState<DownloadSettings>(defaultSettings);
 
-    const downloadsSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const historySaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const settingsSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const progressQueue = React.useRef<Map<string, { progress: number; speed?: string; eta?: string; queuedAt: number }>>(new Map());
-    const progressRaf = React.useRef<number | null>(null);
-    const pendingTerminalState = React.useRef<Map<string, { status: 'completed' | 'error'; error?: string }>>(new Map());
+    const progressQueue = React.useRef<Map<string, { progress: number; speed?: string; speedBps?: number; eta?: string; queuedAt: number }>>(new Map());
+    const progressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Start options for queued items, kept until the item launches.
+    const launchOptions = React.useRef<Map<string, Record<string, unknown>>>(new Map());
+    const launchingIds = React.useRef<Set<string>>(new Set());
     const videoInfoCache = React.useRef<Map<string, { data: VideoInfo; timestamp: number }>>(new Map());
     const videoInfoInflight = React.useRef<Map<string, Promise<{ success: boolean; data?: VideoInfo; error?: string }>>>(new Map());
     const quickVideoInfoCache = React.useRef<Map<string, { data: VideoInfo; timestamp: number }>>(new Map());
@@ -218,41 +278,24 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, []);
 
     useEffect(() => () => {
-        if (downloadsSaveTimer.current) clearTimeout(downloadsSaveTimer.current);
-        if (historySaveTimer.current) clearTimeout(historySaveTimer.current);
-        if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current);
-        if (progressRaf.current) cancelAnimationFrame(progressRaf.current);
-    }, []);
-
-    const scheduleSave = useCallback((key: string, value: unknown, timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>, enabled = true) => {
-        if (!enabled) return;
-        if (timerRef.current) {
-            clearTimeout(timerRef.current);
-        }
-        timerRef.current = setTimeout(() => {
-            try {
-                localStorage.setItem(key, JSON.stringify(value));
-            } catch (e) {
-                console.error(`Failed to save ${key} to localStorage:`, e);
-            }
-        }, SAVE_DEBOUNCE_MS);
+        downloadsWriter.cancel();
+        historyWriter.cancel();
+        settingsWriter.cancel();
+        if (progressTimer.current) clearTimeout(progressTimer.current);
     }, []);
 
     useEffect(() => {
-        scheduleSave(DOWNLOADS_STORAGE_KEY, downloads, downloadsSaveTimer);
-    }, [downloads, scheduleSave]);
+        downloadsWriter.schedule(downloads);
+    }, [downloads]);
 
     useEffect(() => {
-        scheduleSave(HISTORY_STORAGE_KEY, history, historySaveTimer, settings.historyEnabled);
-    }, [history, settings.historyEnabled, scheduleSave]);
+        if (settings.historyEnabled) historyWriter.schedule(history);
+    }, [history, settings.historyEnabled]);
 
     useEffect(() => {
         if (settings.historyEnabled) return;
 
-        if (historySaveTimer.current) {
-            clearTimeout(historySaveTimer.current);
-            historySaveTimer.current = null;
-        }
+        historyWriter.cancel();
 
         if (history.length > 0) {
             setHistory([]);
@@ -262,8 +305,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, [settings.historyEnabled, history]);
 
     useEffect(() => {
-        scheduleSave(SETTINGS_STORAGE_KEY, settings, settingsSaveTimer);
-    }, [settings, scheduleSave]);
+        settingsWriter.schedule(settings);
+    }, [settings]);
 
     // Sync notification settings to main process
     useEffect(() => {
@@ -276,9 +319,10 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const addToHistory = useCallback((item: DownloadItem) => {
         if (!settings.historyEnabled) return;
 
-        // Use URL-based ID to prevent duplicates of the same video
-        // This ensures re-downloading the same video updates the existing entry
-        const historyId = btoa(item.url).replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
+        // One entry per media item, so re-downloading updates it. The key is the
+        // video id or the cleaned URL; a truncated URL prefix made every YouTube
+        // link share one entry.
+        const historyId = getMetadataCacheKey(item.url);
 
         const historyItem: HistoryItem = {
             id: historyId,
@@ -287,6 +331,12 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             thumbnail: item.thumbnail,
             format: item.format || 'video',
             quality: item.quality,
+            filePath: item.filePath,
+            fileName: item.fileName,
+            fileSize: item.fileSize,
+            fileExt: item.fileExt,
+            fileCount: item.fileCount,
+            totalBytes: item.totalBytes,
             completedAt: new Date().toISOString(),
         };
         // Remove existing entry with same ID before adding new one (update)
@@ -315,7 +365,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     return d;
                 }
 
-                return { ...d, progress: update.progress, speed: update.speed, eta: update.eta, status: 'downloading' };
+                return { ...d, progress: update.progress, speed: update.speed, speedBps: update.speedBps, eta: update.eta, status: 'downloading' };
             }));
 
             consumedIds.forEach((id) => progressQueue.current.delete(id));
@@ -328,63 +378,49 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
 
             if (progressQueue.current.size > 0) {
-                progressRaf.current = requestAnimationFrame(flushProgress);
+                progressTimer.current = setTimeout(flushProgress, PROGRESS_FLUSH_MS);
             } else {
-                progressRaf.current = null;
+                progressTimer.current = null;
             }
         };
 
-        const handleProgress = ({ id, progress, speed, eta }: { id: string; progress: number; speed?: string; eta?: string }) => {
-            progressQueue.current.set(id, { progress, speed, eta, queuedAt: Date.now() });
-            if (!progressRaf.current) {
-                progressRaf.current = requestAnimationFrame(flushProgress);
+        const handleProgress = ({ id, progress, speed, speedBps, eta }: { id: string; progress: number; speed?: string; speedBps?: number; eta?: string }) => {
+            progressQueue.current.set(id, { progress, speed, speedBps, eta, queuedAt: Date.now() });
+            if (!progressTimer.current) {
+                progressTimer.current = setTimeout(flushProgress, PROGRESS_FLUSH_MS);
             }
         };
 
-        const handleComplete = ({ id }: { id: string }) => {
-            setDownloads(prev => {
-                let matched = false;
-                const updatedDownloads = prev.map(d => {
-                    if (d.id === id) {
-                        matched = true;
-                        const completedItem = {
-                            ...d,
-                            status: 'completed' as const,
-                            progress: 100,
-                            speed: undefined,
-                            eta: undefined,
-                        };
-                        // Add to history
-                        addToHistory(completedItem);
-                        return completedItem;
-                    }
-                    return d;
-                });
-
-                if (!matched) {
-                    pendingTerminalState.current.set(id, { status: 'completed' });
-                }
-
-                return updatedDownloads;
-            });
+        const handleComplete = ({ id, filePath, fileName, fileSize, fileExt, fileCount, totalBytes }: { id: string; filePath?: string; fileName?: string; fileSize?: number; fileExt?: string; fileCount?: number; totalBytes?: number }) => {
+            // Drop queued progress so a late flush cannot overwrite the final state.
+            progressQueue.current.delete(id);
+            setDownloads(prev => trimCompletedDownloads(prev.map(d => {
+                if (d.id !== id) return d;
+                const completedItem = {
+                    ...d,
+                    status: 'completed' as const,
+                    progress: 100,
+                    speed: undefined,
+                    speedBps: undefined,
+                    eta: undefined,
+                    filePath,
+                    fileName,
+                    fileSize,
+                    fileExt,
+                    fileCount,
+                    totalBytes,
+                    completedAt: new Date().toISOString(),
+                };
+                addToHistory(completedItem);
+                return completedItem;
+            })));
         };
 
         const handleError = ({ id, error }: { id: string; error: string }) => {
             console.error("Download error:", error);
-            setDownloads(prev => {
-                let matched = false;
-                const updated = prev.map(d => {
-                    if (d.id !== id) return d;
-                    matched = true;
-                    return { ...d, status: 'error' as const, error };
-                });
-
-                if (!matched) {
-                    pendingTerminalState.current.set(id, { status: 'error', error });
-                }
-
-                return updated;
-            });
+            setDownloads(prev => prev.map(d => (
+                d.id === id ? { ...d, status: 'error' as const, error, speedBps: undefined } : d
+            )));
         };
 
         const unsubscribeProgress = api.onDownloadProgress(handleProgress);
@@ -483,152 +519,171 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const addDownload = useCallback(async (
         url: string,
-        format: 'video' | 'audio' | 'photo' = 'video',
+        format: DownloadFormat = 'video',
         quality?: string,
         outputDirOrOptions?: string | AddDownloadOptions
     ) => {
-        let seededDownloadId: string | undefined;
+        const parsedOptions: AddDownloadOptions = typeof outputDirOrOptions === 'string'
+            ? { outputDir: outputDirOrOptions }
+            : (outputDirOrOptions || {});
+
+        const turboEnabled = parsedOptions.turboOverride?.enabled ?? settings.enableTurboDownload;
+        const adaptiveTurbo = parsedOptions.turboOverride?.adaptive ?? settings.adaptiveTurboDownload;
+        const turboConnections = parsedOptions.turboOverride?.connections ?? settings.turboConnections;
+
+        let title = parsedOptions.title;
+        let thumbnail = parsedOptions.thumbnail;
+        if (!title) {
+            const infoResult = await getVideoInfo(url).catch(() => null);
+            const info = infoResult?.success ? infoResult.data : undefined;
+            title = info?.title;
+            thumbnail = thumbnail ?? info?.thumbnail;
+        }
+
+        const audioFormat = format === 'audio' ? (parsedOptions.audioFormat ?? 'mp3') : undefined;
+        const expectedBytes = parsedOptions.expectedBytes && parsedOptions.expectedBytes > 0
+            ? parsedOptions.expectedBytes
+            : undefined;
+
+        // Keep downloader input as the original page URL.
+        // Main process fallback logic performs generic direct-media extraction and validation.
+        const downloadOptions = {
+            id: Math.random().toString(36).substr(2, 9),
+            url,
+            titleOverride: title,
+            format,
+            quality,
+            photoTimestampMode: parsedOptions.photoTimestampMode,
+            audioFormat,
+            expectedBytes,
+            galleryIndices: parsedOptions.galleryIndices,
+            directUrls: parsedOptions.directUrls,
+            cookiesFromBrowser: settings.cookiesFromBrowser,
+            embedSubtitles: settings.embedSubtitles,
+            subtitleLanguages: settings.subtitleLanguages,
+            embedMetadata: settings.embedMetadata,
+            preserveThumbnail: settings.preserveThumbnail,
+            embedAltAudio: settings.embedAltAudio,
+            preferredAudioLang: settings.preferredAudioLang,
+            enableTurboDownload: turboEnabled,
+            adaptiveTurboDownload: adaptiveTurbo,
+            turboConnections,
+            outputDir: parsedOptions.outputDir,
+            fileNameTemplate: settings.fileNameTemplate,
+        };
+        launchOptions.current.set(downloadOptions.id, downloadOptions);
+
+        const queuedItem: DownloadItem = {
+            id: downloadOptions.id,
+            url,
+            title: title || PLACEHOLDER_TITLE,
+            thumbnail,
+            progress: 0,
+            status: 'queued',
+            format,
+            quality,
+            outputDir: parsedOptions.outputDir,
+            enableTurboDownload: turboEnabled,
+            adaptiveTurboDownload: adaptiveTurbo,
+            turboConnections,
+            photoTimestampMode: parsedOptions.photoTimestampMode,
+            audioFormat,
+            expectedBytes,
+            galleryIndices: parsedOptions.galleryIndices,
+            directUrls: parsedOptions.directUrls,
+            fileNameTemplate: settings.fileNameTemplate,
+        };
+
+        // The scheduler below starts it as soon as a slot is free.
+        setDownloads(prev => [queuedItem, ...prev]);
+    }, [getVideoInfo, settings]);
+
+    const launchDownload = useCallback(async (download: DownloadItem) => {
+        let options = launchOptions.current.get(download.id);
+        launchOptions.current.delete(download.id);
+
         try {
-            const parsedOptions: AddDownloadOptions = typeof outputDirOrOptions === 'string'
-                ? { outputDir: outputDirOrOptions }
-                : (outputDirOrOptions || {});
+            // A paused item that went back into the queue: prefer the options the
+            // main process kept, which include any resolved source.
+            if (!options && window.electronAPI?.resumeDownload) {
+                const paused = await window.electronAPI.resumeDownload(download.id).catch(() => null);
+                if (paused?.success && paused.options) options = { ...paused.options, id: download.id };
+            }
+            options = options ?? buildRestartOptions(download, settings);
 
-            const turboEnabled = parsedOptions.turboOverride?.enabled ?? settings.enableTurboDownload;
-            const adaptiveTurbo = parsedOptions.turboOverride?.adaptive ?? settings.adaptiveTurboDownload;
-            const turboConnections = parsedOptions.turboOverride?.connections ?? settings.turboConnections;
-
-            const infoResult = await getVideoInfo(url);
-            const info = infoResult.success ? infoResult.data : null;
-
-            // Keep downloader input as the original page URL.
-            // Main process fallback logic performs generic direct-media extraction and validation.
-            const targetUrl = url;
-
-            const downloadOptions = {
-                id: Math.random().toString(36).substr(2, 9),
-                url: targetUrl,
-                titleOverride: info?.title,
-                format,
-                quality,
-                photoTimestampMode: parsedOptions.photoTimestampMode,
-                cookiesFromBrowser: settings.cookiesFromBrowser,
-                embedSubtitles: settings.embedSubtitles,
-                subtitleLanguages: settings.subtitleLanguages,
-                embedMetadata: settings.embedMetadata,
-                preserveThumbnail: settings.preserveThumbnail,
-                embedAltAudio: settings.embedAltAudio,
-                preferredAudioLang: settings.preferredAudioLang,
-                enableTurboDownload: turboEnabled,
-                adaptiveTurboDownload: adaptiveTurbo,
-                turboConnections,
-                outputDir: parsedOptions.outputDir,
-                fileNameTemplate: settings.fileNameTemplate,
-            };
-            seededDownloadId = downloadOptions.id;
-
-            const seededItem: DownloadItem = {
-                id: downloadOptions.id,
-                url,
-                title: info?.title || 'Preparing download...',
-                thumbnail: info?.thumbnail,
-                progress: 0,
-                status: 'pending',
-                format,
-                quality,
-                outputDir: parsedOptions.outputDir,
-                enableTurboDownload: turboEnabled,
-                adaptiveTurboDownload: adaptiveTurbo,
-                turboConnections,
-                photoTimestampMode: parsedOptions.photoTimestampMode,
-            };
-
-            setDownloads(prev => {
-                const pending = pendingTerminalState.current.get(seededItem.id);
-                if (!pending) {
-                    return [seededItem, ...prev];
-                }
-
-                pendingTerminalState.current.delete(seededItem.id);
-                const resolved = pending.status === 'completed'
-                    ? { ...seededItem, status: 'completed' as const, progress: 100 }
-                    : { ...seededItem, status: 'error' as const, error: pending.error };
-
-                if (pending.status === 'completed') {
-                    addToHistory(resolved);
-                }
-
-                return [resolved, ...prev];
-            });
-
-            let result;
-            if (window.electronAPI?.startDownload) {
-                result = await window.electronAPI.startDownload(downloadOptions);
-            } else {
+            if (!window.electronAPI?.startDownload) {
                 console.warn('IPC not available, mocking download');
-                const newItem: DownloadItem = {
-                    id: downloadOptions.id,
-                    url,
-                    title: info?.title || 'Mock Download',
-                    thumbnail: info?.thumbnail,
-                    progress: 0,
-                    status: 'pending',
-                    format,
-                    quality,
-                    outputDir: parsedOptions.outputDir,
-                    enableTurboDownload: turboEnabled,
-                    adaptiveTurboDownload: adaptiveTurbo,
-                    turboConnections,
-                    photoTimestampMode: parsedOptions.photoTimestampMode,
-                };
-                setDownloads(prev => prev.map(d => d.id === downloadOptions.id ? newItem : d));
-
                 let progress = 0;
                 const interval = setInterval(() => {
                     progress += Math.random() * 15;
                     if (progress >= 100) {
                         clearInterval(interval);
                         setDownloads(prev => prev.map(d => {
-                            if (d.id === downloadOptions.id) {
-                                const completed = { ...d, status: 'completed' as const, progress: 100 };
-                                addToHistory(completed);
-                                return completed;
-                            }
-                            return d;
+                            if (d.id !== download.id) return d;
+                            const completed = { ...d, status: 'completed' as const, progress: 100 };
+                            addToHistory(completed);
+                            return completed;
                         }));
                     } else {
                         setDownloads(prev => prev.map(d =>
-                            d.id === downloadOptions.id ? { ...d, status: 'downloading', progress, speed: '1.5 MB/s', eta: '00:15' } : d
+                            d.id === download.id ? { ...d, status: 'downloading', progress, speed: '1.5 MB/s', speedBps: 1572864, eta: '00:15' } : d
                         ));
                     }
                 }, 500);
                 return;
             }
 
-            if (!result || result.status !== 'started') {
+            const result = await window.electronAPI.startDownload(options);
+
+            // Photos return 'completed', and early pause/cancel return 'paused'/'canceled'.
+            // An 'error' with no message has already been reported by the main process.
+            if (!result || (result.status === 'error' && result.error)) {
                 throw new Error(result?.error || 'Download did not start');
             }
 
-            if (result?.id && result.id !== downloadOptions.id) {
-                setDownloads(prev => prev.map(d => d.id === downloadOptions.id ? { ...d, id: result.id } : d));
+            if (result?.id && result.id !== download.id) {
+                setDownloads(prev => prev.map(d => d.id === download.id ? { ...d, id: result.id } : d));
             }
         } catch (e) {
             console.error('Failed to start download', e);
-            if (!seededDownloadId) return;
             const message = e instanceof Error ? e.message : 'Failed to start download';
             setDownloads(prev => prev.map(d =>
-                d.id === seededDownloadId
+                d.id === download.id && d.status !== 'completed'
                     ? { ...d, status: 'error', error: message }
                     : d
             ));
+        } finally {
+            launchingIds.current.delete(download.id);
         }
-    }, [getVideoInfo, addToHistory, settings]);
+    }, [settings, addToHistory]);
+
+    // Starts queued items, oldest first, while fewer than the limit are running.
+    useEffect(() => {
+        const startIds = pickQueuedToStart(downloads, settings.maxParallelDownloads || DEFAULT_MAX_PARALLEL_DOWNLOADS)
+            .filter(id => !launchingIds.current.has(id));
+        if (startIds.length === 0) return;
+
+        const starting = downloads.filter(d => startIds.includes(d.id));
+        starting.forEach(d => launchingIds.current.add(d.id));
+        setDownloads(prev => prev.map(d => (
+            startIds.includes(d.id) && d.status === 'queued' ? { ...d, status: 'pending' as const } : d
+        )));
+        starting.forEach(d => { void launchDownload(d); });
+    }, [downloads, settings.maxParallelDownloads, launchDownload]);
 
     const removeDownload = useCallback((id: string) => {
+        launchOptions.current.delete(id);
         setDownloads(prev => prev.filter(d => d.id !== id));
     }, []);
 
     const cancelDownload = useCallback(async (id: string) => {
         try {
+            // A queued item has no process yet.
+            if (downloads.find(d => d.id === id)?.status === 'queued') {
+                removeDownload(id);
+                return;
+            }
+
             let result: any = { success: false };
             if (window.electronAPI?.cancelDownload) {
                 result = await window.electronAPI.cancelDownload(id);
@@ -640,19 +695,20 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 throw new Error(result?.error || 'Cancel request was not accepted');
             }
 
-            setDownloads(prev => prev.filter(d => d.id !== id));
+            removeDownload(id);
         } catch (e) {
             console.error('Failed to cancel download', e);
             throw e;
         }
-    }, []);
+    }, [downloads, removeDownload]);
 
     const pauseDownload = useCallback(async (id: string) => {
         try {
-            let result: any = { success: false };
-            if (window.electronAPI?.pauseDownload) {
+            const queued = downloads.find(d => d.id === id)?.status === 'queued';
+            let result: any = { success: queued };
+            if (!queued && window.electronAPI?.pauseDownload) {
                 result = await window.electronAPI.pauseDownload(id);
-            } else {
+            } else if (!queued) {
                 result = { success: true };
             }
 
@@ -662,19 +718,27 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
             // Update status to paused
             setDownloads(prev => prev.map(d =>
-                d.id === id ? { ...d, status: 'paused' as const } : d
+                d.id === id ? { ...d, status: 'paused' as const, speed: undefined, speedBps: undefined } : d
             ));
         } catch (e) {
             console.error('Failed to pause download', e);
             throw e;
         }
-    }, []);
+    }, [downloads]);
 
     const resumeDownload = useCallback(async (id: string) => {
         try {
             // Get the paused download info
             const download = downloads.find(d => d.id === id);
             if (!download) return;
+
+            // Paused before it ever started: back into the queue.
+            if (launchOptions.current.has(id)) {
+                setDownloads(prev => prev.map(d =>
+                    d.id === id ? { ...d, status: 'queued' as const } : d
+                ));
+                return;
+            }
 
             // Resume will restart the download with the same URL
             // yt-dlp automatically resumes from partial files
@@ -693,30 +757,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
             // Fallback: if main process lost paused state (e.g. app restart),
             // restart using the same id so yt-dlp can continue partial files.
-            if (!resumed) {
-                const options = {
-                    id,
-                    url: download.url,
-                    format: download.format || 'video',
-                    quality: download.quality,
-                    cookiesFromBrowser: settings.cookiesFromBrowser,
-                    embedSubtitles: settings.embedSubtitles,
-                    subtitleLanguages: settings.subtitleLanguages,
-                    embedMetadata: settings.embedMetadata,
-                    preserveThumbnail: settings.preserveThumbnail,
-                    embedAltAudio: settings.embedAltAudio,
-                    preferredAudioLang: settings.preferredAudioLang,
-                    enableTurboDownload: download.enableTurboDownload ?? settings.enableTurboDownload,
-                    adaptiveTurboDownload: download.adaptiveTurboDownload ?? settings.adaptiveTurboDownload,
-                    turboConnections: download.turboConnections ?? settings.turboConnections,
-                    photoTimestampMode: download.photoTimestampMode,
-                    outputDir: download.outputDir,
-                };
-
-                if (window.electronAPI?.startDownload) {
-                    await window.electronAPI.startDownload(options);
-                    resumed = true;
-                }
+            if (!resumed && window.electronAPI?.startDownload) {
+                await window.electronAPI.startDownload(buildRestartOptions(download, settings));
+                resumed = true;
             }
 
             if (!resumed) {
@@ -725,7 +768,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
             // Update status to downloading
             setDownloads(prev => prev.map(d =>
-                d.id === id ? { ...d, status: 'downloading' as const } : d
+                d.id === id ? { ...d, status: 'downloading' as const, error: undefined } : d
             ));
         } catch (e) {
             console.error('Failed to resume download', e);
@@ -735,7 +778,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const cancelAllDownloads = useCallback(async () => {
         const cancellableIds = downloads
-            .filter(d => d.status === 'pending' || d.status === 'downloading' || d.status === 'paused')
+            .filter(d => d.status === 'queued' || d.status === 'pending' || d.status === 'downloading' || d.status === 'paused')
             .map(d => d.id);
 
         if (cancellableIds.length === 0) return;
@@ -748,8 +791,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, [downloads, cancelDownload]);
 
     const stopAllDownloads = useCallback(async () => {
+        // Queued items pause too, or they would take the slots this frees.
         const pausableIds = downloads
-            .filter(d => d.status === 'downloading')
+            .filter(d => d.status === 'queued' || d.status === 'downloading')
             .map(d => d.id);
 
         if (pausableIds.length === 0) return;
@@ -761,19 +805,14 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
     }, [downloads, pauseDownload]);
 
+    // Back into the queue, so the parallel limit still applies.
     const resumeAllDownloads = useCallback(async () => {
-        const resumableIds = downloads
-            .filter(d => d.status === 'paused')
-            .map(d => d.id);
+        setDownloads(prev => prev.map(d => (
+            d.status === 'paused' ? { ...d, status: 'queued' as const, error: undefined } : d
+        )));
+    }, []);
 
-        if (resumableIds.length === 0) return;
-
-        const results = await Promise.allSettled(resumableIds.map(id => resumeDownload(id)));
-        const failures = results.filter(result => result.status === 'rejected');
-        if (failures.length > 0) {
-            throw new Error(`Failed to resume ${failures.length} download(s)`);
-        }
-    }, [downloads, resumeDownload]);
+    const findInHistory = useCallback((url: string) => findHistoryMatch(history, url), [history]);
 
     const boostDownload = useCallback(async (id: string) => {
         const download = downloads.find(d => d.id === id);
@@ -782,32 +821,21 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Use a conservative boost floor that is faster but still stable for most hosts.
         const boostedConnections = Math.max(download.turboConnections || settings.turboConnections || 8, 12);
 
-        const boostedOptions = {
-            id,
-            url: download.url,
-            format: download.format || 'video',
-            quality: download.quality,
-            cookiesFromBrowser: settings.cookiesFromBrowser,
-            embedSubtitles: settings.embedSubtitles,
-            subtitleLanguages: settings.subtitleLanguages,
-            embedMetadata: settings.embedMetadata,
-            preserveThumbnail: settings.preserveThumbnail,
-            embedAltAudio: settings.embedAltAudio,
-            preferredAudioLang: settings.preferredAudioLang,
-            enableTurboDownload: true,
-            adaptiveTurboDownload: false,
-            turboConnections: boostedConnections,
-            photoTimestampMode: download.photoTimestampMode,
-            outputDir: download.outputDir,
-        };
-
         try {
             if (window.electronAPI?.pauseDownload) {
                 await window.electronAPI.pauseDownload(id);
             }
 
             if (window.electronAPI?.startDownload) {
-                await window.electronAPI.startDownload(boostedOptions);
+                // Reuse the options the main process kept, including any resolved source.
+                const paused = await window.electronAPI.resumeDownload?.(id);
+                await window.electronAPI.startDownload({
+                    ...(paused?.options ?? buildRestartOptions(download, settings)),
+                    id,
+                    enableTurboDownload: true,
+                    adaptiveTurboDownload: false,
+                    turboConnections: boostedConnections,
+                });
             }
 
             setDownloads(prev => prev.map(d =>
@@ -842,6 +870,10 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         removeDownload(id);
         await addDownload(download.url, download.format, download.quality, {
+            title: download.title === PLACEHOLDER_TITLE ? undefined : download.title,
+            thumbnail: download.thumbnail,
+            audioFormat: download.audioFormat,
+            expectedBytes: download.expectedBytes,
             outputDir: download.outputDir,
             turboOverride: {
                 enabled: download.enableTurboDownload ?? settings.enableTurboDownload,
@@ -876,7 +908,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const searchVideos = useCallback(async (query: string, platform: string, count: number = 20) => {
         if (window.electronAPI?.searchVideos) {
-            return await window.electronAPI.searchVideos(query, platform, count);
+            return await window.electronAPI.searchVideos(query, platform, count, settings.cookiesFromBrowser || undefined);
         }
         // Mock for browser testing
         return {
@@ -887,7 +919,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 results: []
             }
         };
-    }, []);
+    }, [settings.cookiesFromBrowser]);
 
     const getPlaylistInfo = useCallback(async (url: string) => {
         if (window.electronAPI?.getPlaylistInfo) {
@@ -929,32 +961,60 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         };
     }, []);
 
+    const value = useMemo<DownloadContextType>(() => ({
+        findInHistory,
+        downloads,
+        history,
+        settings,
+        addDownload,
+        removeDownload,
+        cancelDownload,
+        pauseDownload,
+        resumeDownload,
+        cancelAllDownloads,
+        stopAllDownloads,
+        resumeAllDownloads,
+        boostDownload,
+        retryDownload,
+        clearCompleted,
+        clearHistory,
+        removeFromHistory,
+        updateSettings,
+        getVideoInfo,
+        getFastVideoInfo,
+        searchVideos,
+        getPlaylistInfo,
+        getAvailableBrowsers,
+        validateBrowserCookies,
+    }), [
+        findInHistory,
+        downloads,
+        history,
+        settings,
+        addDownload,
+        removeDownload,
+        cancelDownload,
+        pauseDownload,
+        resumeDownload,
+        cancelAllDownloads,
+        stopAllDownloads,
+        resumeAllDownloads,
+        boostDownload,
+        retryDownload,
+        clearCompleted,
+        clearHistory,
+        removeFromHistory,
+        updateSettings,
+        getVideoInfo,
+        getFastVideoInfo,
+        searchVideos,
+        getPlaylistInfo,
+        getAvailableBrowsers,
+        validateBrowserCookies,
+    ]);
+
     return (
-        <DownloadContext.Provider value={{
-            downloads,
-            history,
-            settings,
-            addDownload,
-            removeDownload,
-            cancelDownload,
-            pauseDownload,
-            resumeDownload,
-            cancelAllDownloads,
-            stopAllDownloads,
-            resumeAllDownloads,
-            boostDownload,
-            retryDownload,
-            clearCompleted,
-            clearHistory,
-            removeFromHistory,
-            updateSettings,
-            getVideoInfo,
-            getFastVideoInfo,
-            searchVideos,
-            getPlaylistInfo,
-            getAvailableBrowsers,
-            validateBrowserCookies,
-        }}>
+        <DownloadContext.Provider value={value}>
             {children}
         </DownloadContext.Provider>
     );

@@ -127,7 +127,11 @@ const PlaylistModal: React.FC<PlaylistModalProps> = ({ isOpen, onClose, url }) =
         const selectedVids = playlistInfo.videos.filter(v => selectedVideos.has(v.id));
 
         await runWithConcurrency(selectedVids, CONCURRENCY_LIMIT, async (video) => {
-            await addDownload(video.url, format, format === 'video' ? quality : undefined);
+            // The listing already has the title, so the item queues without another info call.
+            await addDownload(video.url, format, format === 'video' ? quality : undefined, {
+                title: video.title,
+                thumbnail: video.thumbnail,
+            });
         });
 
         setIsDownloading(false);

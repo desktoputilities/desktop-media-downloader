@@ -9,6 +9,12 @@
     output: "release/${version}",
   },
   files: ["dist", "dist-electron"],
+  // In-app updates read latest*.yml from the GitHub release.
+  publish: {
+    provider: "github",
+    owner: "desktoputilities",
+    repo: "desktop-media-downloader",
+  },
   extraResources: [
     { from: "bin/", to: "bin/", filter: ["**/*", "!.gitkeep"] },
     { from: "THIRD_PARTY_NOTICES.md", to: "THIRD_PARTY_NOTICES.md" },

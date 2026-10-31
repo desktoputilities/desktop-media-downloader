@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, Folder, Download, History, Subtitles, Music2, Tag, Globe, Loader2, CheckCircle, XCircle, Languages } from 'lucide-react';
+import { Moon, Sun, Folder, Download, History, Subtitles, Music2, Tag, Globe, Loader2, CheckCircle, XCircle, Languages, Layers, Zap, KeyRound, Upload, X } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useDownloads } from '../context/DownloadContext';
 import { cn } from '../lib/utils';
@@ -41,6 +41,85 @@ const SettingsRow: React.FC<SettingsRowProps> = ({ icon, title, description, bet
         <div>{children}</div>
     </div>
 );
+
+// Cookies exported from browser profiles: the import, then each saved site
+// with a remove button.
+const ImportedCookies: React.FC = () => {
+    const { t } = useTranslation();
+    const [sites, setSites] = useState<string[]>([]);
+    const [version, setVersion] = useState(0);
+    const [importing, setImporting] = useState(false);
+    const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        void window.electronAPI?.listSiteLogins?.().then((result) => {
+            if (!cancelled) setSites(result?.sites || []);
+        });
+        return () => { cancelled = true; };
+    }, [version]);
+
+    const handleImport = async () => {
+        if (!window.electronAPI?.importSiteCookies) return;
+        setImporting(true);
+        setMessage(null);
+        try {
+            const result = await window.electronAPI.importSiteCookies();
+            if (result.canceled) return;
+            setMessage(result.success
+                ? { ok: true, text: t('settings.cookiesImported', { sites: (result.sites || []).join(', ') }) }
+                : { ok: false, text: result.error || t('settings.cookiesImportFailed') });
+            setVersion((value) => value + 1);
+        } finally {
+            setImporting(false);
+        }
+    };
+
+    return (
+        <>
+            <SettingsRow
+                icon={<KeyRound className="w-4 h-4" />}
+                title={t('settings.siteCookies')}
+                description={t('settings.importCookiesHelp')}
+            >
+                <button
+                    type="button"
+                    onClick={() => void handleImport()}
+                    disabled={importing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                >
+                    {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    {t('settings.importCookies')}
+                </button>
+            </SettingsRow>
+            {(sites.length > 0 || message) && (
+                <div className="pb-3 pl-12 flex flex-col gap-2">
+                    {sites.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            {sites.map((site) => (
+                                <span key={site} className="flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg bg-foreground/5 text-xs">
+                                    {site}
+                                    <button
+                                        type="button"
+                                        onClick={() => void window.electronAPI?.clearSiteLogin(site).then(() => setVersion((value) => value + 1))}
+                                        className="p-0.5 rounded text-foreground/45 hover:text-foreground hover:bg-foreground/10"
+                                        title={t('settings.removeCookies')}
+                                        aria-label={`${t('settings.removeCookies')}: ${site}`}
+                                    >
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                    {message && (
+                        <p className={cn('text-xs', message.ok ? 'text-foreground/75' : 'text-warning')}>{message.text}</p>
+                    )}
+                </div>
+            )}
+        </>
+    );
+};
 
 interface ToggleProps {
     enabled: boolean;
@@ -313,56 +392,20 @@ const SettingsPanel: React.FC = () => {
                         </SettingsRow>
 
                         <SettingsRow
-                            icon={<Download className="w-4 h-4" />}
-                            title={t('settings.turboDownload')}
-                            description={t('settings.turboDownloadDesc')}
-                            beta
-                            betaNote={t('settings.turboDownloadNote')}
+                            icon={<Layers className="w-4 h-4" />}
+                            title={t('settings.parallelDownloads')}
+                            description={t('settings.parallelDownloadsDesc')}
                         >
-                            <Toggle enabled={settings.enableTurboDownload} onToggle={handleToggleTurboDownload} />
-                        </SettingsRow>
-
-                        {settings.enableTurboDownload && (
-                            <>
-                                <SettingsRow
-                                    icon={<Download className="w-4 h-4" />}
-                                    title={t('settings.turboMode')}
-                                    description={t('settings.turboModeDesc')}
-                                >
-                                    <select
-                                        value={settings.adaptiveTurboDownload ? 'auto' : 'manual'}
-                                        onChange={(e) => updateSettings({ adaptiveTurboDownload: e.target.value === 'auto' })}
-                                        className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
-                                    >
-                                        <option value="auto">{t('settings.autoRecommended')}</option>
-                                        <option value="manual">{t('settings.manual')}</option>
-                                    </select>
-                                </SettingsRow>
-
-                                <div className="px-1 pb-3 text-xs text-foreground/55 leading-relaxed">
-                                    {t('settings.turboAutoExplanation')}
-                                </div>
-                            </>
-                        )}
-
-                        {settings.enableTurboDownload && !settings.adaptiveTurboDownload && (
-                            <SettingsRow
-                                icon={<Download className="w-4 h-4" />}
-                                title={t('settings.turboConnections')}
-                                description={t('settings.turboConnectionsDesc')}
+                            <select
+                                value={String(settings.maxParallelDownloads)}
+                                onChange={(e) => updateSettings({ maxParallelDownloads: parseInt(e.target.value, 10) || 3 })}
+                                className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
                             >
-                                <select
-                                    value={String(settings.turboConnections)}
-                                    onChange={handleTurboConnectionsChange}
-                                    className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
-                                >
-                                    <option value="4">4</option>
-                                    <option value="8">8</option>
-                                    <option value="12">12</option>
-                                    <option value="16">16</option>
-                                </select>
-                            </SettingsRow>
-                        )}
+                                {[1, 2, 3, 4, 5, 6, 8].map(count => (
+                                    <option key={count} value={count}>{count}</option>
+                                ))}
+                            </select>
+                        </SettingsRow>
                     </div>
                 </div>
 
@@ -520,11 +563,18 @@ const SettingsPanel: React.FC = () => {
                                 {t('settings.cookieInvalid')}
                             </div>
                         )}
+                        {/* Chromium on Windows encrypts cookies so only the browser itself can read them. */}
+                        {['chrome', 'edge', 'brave', 'opera', 'chromium'].includes(settings.cookiesFromBrowser) && navigator.userAgent.includes('Windows') && (
+                            <div className="mt-2 p-2 bg-warning/10 rounded-lg text-xs text-warning">
+                                {t('settings.chromiumCookiesNote')}
+                            </div>
+                        )}
                         {settings.cookiesFromBrowser && cookieStatus === 'unknown' && (
                             <div className="mt-2 p-2 bg-warning/10 rounded-lg text-xs text-warning">
                                 {t('settings.cookieUnknown')}
                             </div>
                         )}
+                        <ImportedCookies />
                     </div>
                 </div>
 
@@ -584,7 +634,7 @@ const SettingsPanel: React.FC = () => {
                     <div className="bg-secondary/30 rounded-2xl p-4 border border-foreground/5">
                         <div className="space-y-3 text-sm">
                             {[
-                                { keys: 'Ctrl + V', action: t('settings.shortcutHome') },
+                                { keys: 'Ctrl + V', action: t('settings.shortcutPaste') },
                                 { keys: 'Ctrl + D', action: t('settings.shortcutDownloads') },
                                 { keys: 'Ctrl + H', action: t('settings.shortcutHistory') },
                                 { keys: 'Ctrl + ,', action: t('settings.shortcutSettings') },
@@ -596,6 +646,66 @@ const SettingsPanel: React.FC = () => {
                                 </div>
                             ))}
                         </div>
+                    </div>
+                </div>
+
+                {/* Advanced Section */}
+                <div className="mb-8">
+                    <h2 className="text-sm font-semibold text-foreground/40 uppercase tracking-wider mb-4">
+                        {t('settings.advancedSection')}
+                    </h2>
+                    <div className="bg-secondary/30 rounded-2xl p-4 border border-foreground/5">
+                        <SettingsRow
+                            icon={<Zap className="w-4 h-4" />}
+                            title={t('settings.turboDownload')}
+                            description={t('settings.turboDownloadDesc')}
+                            beta
+                            betaNote={t('settings.turboDownloadNote')}
+                        >
+                            <Toggle enabled={settings.enableTurboDownload} onToggle={handleToggleTurboDownload} />
+                        </SettingsRow>
+
+                        {settings.enableTurboDownload && (
+                            <>
+                                <SettingsRow
+                                    icon={<Zap className="w-4 h-4" />}
+                                    title={t('settings.turboMode')}
+                                    description={t('settings.turboModeDesc')}
+                                >
+                                    <select
+                                        value={settings.adaptiveTurboDownload ? 'auto' : 'manual'}
+                                        onChange={(e) => updateSettings({ adaptiveTurboDownload: e.target.value === 'auto' })}
+                                        className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
+                                    >
+                                        <option value="auto">{t('settings.autoRecommended')}</option>
+                                        <option value="manual">{t('settings.manual')}</option>
+                                    </select>
+                                </SettingsRow>
+
+                                <div className="px-1 pb-3 text-xs text-foreground/55 leading-relaxed">
+                                    {t('settings.turboAutoExplanation')}
+                                </div>
+                            </>
+                        )}
+
+                        {settings.enableTurboDownload && !settings.adaptiveTurboDownload && (
+                            <SettingsRow
+                                icon={<Zap className="w-4 h-4" />}
+                                title={t('settings.turboConnections')}
+                                description={t('settings.turboConnectionsDesc')}
+                            >
+                                <select
+                                    value={String(settings.turboConnections)}
+                                    onChange={handleTurboConnectionsChange}
+                                    className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
+                                >
+                                    <option value="4">4</option>
+                                    <option value="8">8</option>
+                                    <option value="12">12</option>
+                                    <option value="16">16</option>
+                                </select>
+                            </SettingsRow>
+                        )}
                     </div>
                 </div>
 

@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Minus, X, Maximize2 } from 'lucide-react';
+import { Minus, X, Maximize2, Link2 } from 'lucide-react';
 import Sidebar from './Sidebar';
-import Home from '../pages/Home';
+import Home, { type IncomingLink } from '../pages/Home';
 import Downloads from '../pages/Downloads';
 import History from '../pages/History';
 import Settings from '../pages/Settings';
@@ -11,6 +11,7 @@ import System from '../pages/System';
 import DesktopMediaLogo from './DesktopMediaLogo';
 import SetupWizard from './SetupWizard';
 import WhatsNewModal from './WhatsNewModal';
+import { extractLink } from '../lib/videoPreview';
 
 // Window types are defined in vite-env.d.ts
 
@@ -19,17 +20,16 @@ const WHATS_NEW_SEEN_VERSION_STORAGE_KEY = 'desktop-media-whats-new-seen-version
 
 type Page = 'home' | 'downloads' | 'history' | 'system' | 'settings' | 'info';
 
-const pageMap: Record<Page, React.ReactNode> = {
-    home: <Home />,
-    downloads: <Downloads />,
-    history: <History />,
-    system: <System />,
-    settings: <Settings />,
-    info: <Info />,
-};
+const PAGES: Page[] = ['home', 'downloads', 'history', 'system', 'settings', 'info'];
 
 const isPage = (value: string): value is Page => {
-    return value in pageMap;
+    return (PAGES as string[]).includes(value);
+};
+
+const isEditableTarget = (target: EventTarget | null): boolean => {
+    const element = target as HTMLElement | null;
+    if (!element) return false;
+    return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.tagName === 'SELECT' || element.isContentEditable;
 };
 
 const Layout: React.FC = () => {
@@ -39,10 +39,79 @@ const Layout: React.FC = () => {
     const [hasAvailableUpdate, setHasAvailableUpdate] = useState(false);
     const [showWhatsNew, setShowWhatsNew] = useState(false);
     const [appVersion, setAppVersion] = useState('');
+    const [incomingLink, setIncomingLink] = useState<IncomingLink | null>(null);
+    const [isDraggingLink, setIsDraggingLink] = useState(false);
 
-    const handleNavigate = (page: string) => {
+    const handleNavigate = useCallback((page: string) => {
         if (isPage(page)) {
             setCurrentPage(page);
+        }
+    }, []);
+
+    // Paste or drop a link on any screen: open Home with it in the link bar.
+    const receiveLink = useCallback((text: string | null | undefined) => {
+        const link = extractLink(text);
+        if (!link) return false;
+        setCurrentPage('home');
+        setIncomingLink({ url: link, nonce: Date.now() });
+        return true;
+    }, []);
+
+    useEffect(() => {
+        const handlePaste = (e: ClipboardEvent) => {
+            if (isEditableTarget(e.target)) return;
+            if (receiveLink(e.clipboardData?.getData('text/plain'))) e.preventDefault();
+        };
+
+        const carriesText = (e: DragEvent) => {
+            const types = Array.from(e.dataTransfer?.types || []);
+            return types.includes('text/uri-list') || types.includes('text/plain');
+        };
+
+        let dragDepth = 0;
+        const handleDragEnter = (e: DragEvent) => {
+            if (!carriesText(e)) return;
+            dragDepth += 1;
+            setIsDraggingLink(true);
+        };
+        const handleDragOver = (e: DragEvent) => {
+            // Always cancel, so a dropped file or link never navigates the window.
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = carriesText(e) ? 'copy' : 'none';
+        };
+        const handleDragLeave = () => {
+            dragDepth = Math.max(0, dragDepth - 1);
+            if (dragDepth === 0) setIsDraggingLink(false);
+        };
+        const handleDrop = (e: DragEvent) => {
+            e.preventDefault();
+            dragDepth = 0;
+            setIsDraggingLink(false);
+            receiveLink(e.dataTransfer?.getData('text/uri-list') || e.dataTransfer?.getData('text/plain'));
+        };
+
+        document.addEventListener('paste', handlePaste);
+        window.addEventListener('dragenter', handleDragEnter);
+        window.addEventListener('dragover', handleDragOver);
+        window.addEventListener('dragleave', handleDragLeave);
+        window.addEventListener('drop', handleDrop);
+        return () => {
+            document.removeEventListener('paste', handlePaste);
+            window.removeEventListener('dragenter', handleDragEnter);
+            window.removeEventListener('dragover', handleDragOver);
+            window.removeEventListener('dragleave', handleDragLeave);
+            window.removeEventListener('drop', handleDrop);
+        };
+    }, [receiveLink]);
+
+    const renderPage = (page: Page): React.ReactNode => {
+        switch (page) {
+            case 'home': return <Home incomingLink={incomingLink} onNavigate={handleNavigate} />;
+            case 'downloads': return <Downloads />;
+            case 'history': return <History />;
+            case 'system': return <System />;
+            case 'settings': return <Settings />;
+            case 'info': return <Info />;
         }
     };
 
@@ -112,8 +181,7 @@ const Layout: React.FC = () => {
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             // Don't trigger shortcuts when typing in input fields
-            const target = e.target as HTMLElement;
-            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+            if (isEditableTarget(e.target)) {
                 return;
             }
 
@@ -130,11 +198,6 @@ const Layout: React.FC = () => {
 
             if (ctrlOrMeta && !e.shiftKey && !e.altKey) {
                 switch (e.key.toLowerCase()) {
-                    case 'v':
-                        // Navigate to home for paste
-                        setCurrentPage('home');
-                        // Don't prevent default — let the OS paste into the URL input
-                        return;
                     case 'd':
                         e.preventDefault();
                         setCurrentPage('downloads');
@@ -233,9 +296,18 @@ const Layout: React.FC = () => {
                     showInfoBadge={hasAvailableUpdate}
                 />
                 <main className="flex-1 overflow-auto relative bg-background/60 border-l border-foreground/5">
-                    {pageMap[currentPage]}
+                    {renderPage(currentPage)}
                 </main>
             </div>
+
+            {isDraggingLink && (
+                <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+                    <div className="flex items-center gap-3 rounded-2xl border-2 border-dashed border-primary/60 bg-card/90 px-8 py-6 text-foreground">
+                        <Link2 className="w-5 h-5 text-primary" />
+                        <span className="text-sm font-medium">{t('home.dropToStart')}</span>
+                    </div>
+                </div>
+            )}
 
             <SetupWizard isOpen={showSetupWizard} onClose={handleSetupClose} />
             <WhatsNewModal
