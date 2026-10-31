@@ -7,6 +7,7 @@ import * as fsPromises from 'node:fs/promises'
 import {
   buildVideoFormatSelector,
   classifyDownloadFailure,
+  createProgressAggregator,
   decodeDumpedPages,
   DEFAULT_CONCURRENT_FRAGMENTS,
   getNetworkRetryArgs,
@@ -14,7 +15,7 @@ import {
   getVideoFormatSortArgs,
   isStagedTempFile,
   normalizeHttpUrl,
-  parseYtDlpProgress,
+  readProgressRecord,
   spawnYtDlp,
 } from './yt-dlp'
 import {
@@ -22,6 +23,7 @@ import {
   getOEmbedEndpoint,
   parseQuickHtmlMetadata,
   SIZE_LADDER,
+  summarizeAudioDownload,
   summarizeRequestedDownloads,
 } from './video-info'
 
@@ -1564,6 +1566,24 @@ const scoreDownloadSourceCandidate = (
 
 const getStagingDir = () => path.join(app.getPath('temp'), 'desktop-media-downloader-staging');
 
+const AUDIO_FORMAT_SELECTOR = 'bestaudio/best';
+
+// Mirrors overall progress of running downloads on the Windows taskbar and
+// macOS dock. Checked on a timer so every engine and exit path is covered.
+let taskbarProgressShown = false;
+const updateTaskbarProgress = () => {
+  if (!win || win.isDestroyed()) return;
+  const running = [...activeDownloads.values()];
+  if (running.length === 0) {
+    if (taskbarProgressShown) win.setProgressBar(-1);
+    taskbarProgressShown = false;
+    return;
+  }
+  const average = running.reduce((total, item) => total + (Number(item.progress) || 0), 0) / running.length;
+  win.setProgressBar(Math.max(0.01, Math.min(1, average / 100)));
+  taskbarProgressShown = true;
+};
+
 const ensureDirectory = async (dirPath: string) => {
   await fsPromises.mkdir(dirPath, { recursive: true });
 };
@@ -1615,10 +1635,41 @@ const uniqueDestinationPath = async (baseDir: string, fileName: string) => {
 };
 
 interface FinalizedFile {
+  filePath: string;
   fileName: string;
   fileSize: number;
   fileExt: string;
 }
+
+const describeFile = async (filePath: string): Promise<Partial<FinalizedFile>> => {
+  try {
+    const { size } = await fsPromises.stat(filePath);
+    return {
+      filePath,
+      fileName: path.basename(filePath),
+      fileSize: size,
+      fileExt: path.extname(filePath).replace('.', '').toLowerCase(),
+    };
+  } catch {
+    return {};
+  }
+};
+
+// Finished files the renderer may open. Executables, scripts and documents are
+// excluded so a compromised page cannot launch arbitrary files.
+const OPENABLE_MEDIA_EXTENSIONS = new Set([
+  'mp4', 'mkv', 'webm', 'mov', 'avi', 'flv', 'm4v', 'ts',
+  'm4a', 'mp3', 'opus', 'ogg', 'oga', 'wav', 'flac', 'aac', 'weba',
+  'jpg', 'jpeg', 'png', 'webp', 'avif', 'gif',
+]);
+
+const resolveOpenableMediaPath = (rawPath: unknown): string | null => {
+  if (typeof rawPath !== 'string' || !path.isAbsolute(rawPath)) return null;
+  const resolved = path.resolve(rawPath);
+  const ext = path.extname(resolved).replace('.', '').toLowerCase();
+  if (!OPENABLE_MEDIA_EXTENSIONS.has(ext)) return null;
+  return fs.existsSync(resolved) ? resolved : null;
+};
 
 // Returns the largest moved file, which is the media rather than a sidecar.
 const finalizeStagedDownload = async (
@@ -1667,6 +1718,7 @@ const finalizeStagedDownload = async (
 
   const primary = moved.reduce((largest, file) => (file.size > largest.size ? file : largest));
   return {
+    filePath: primary.destinationPath,
     fileName: path.basename(primary.destinationPath),
     fileSize: primary.size,
     fileExt: path.extname(primary.destinationPath).replace('.', '').toLowerCase(),
@@ -1904,6 +1956,8 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
             quality: String(height),
             ffmpegAvailable: ffmpegReady,
           }));
+          // Same selector as audio downloads, for the "Original" audio size.
+          selectors.push(AUDIO_FORMAT_SELECTOR);
           args.push('-f', selectors.join(','), ...getVideoFormatSortArgs());
         }
         if (referer) args.push('--referer', referer);
@@ -2068,6 +2122,7 @@ ipcMain.handle('get-video-info', async (_event, url: string, cookiesBrowser?: st
           videoQualities,
           videoQualitySizes: qualitySizeMap,
           videoQualityDetails: qualityDetails,
+          audioDetail: summarizeAudioDownload(info.requested_downloads),
           hasAudio: formats.some((f: any) => f.acodec && f.acodec !== 'none'),
           // Pass through HTML-extracted direct sources when available
           ...(info._directExtractedSources ? {
@@ -2831,7 +2886,10 @@ interface DownloadOptions {
   titleOverride?: string;
   format: 'video' | 'audio' | 'photo';
   quality?: string; // '1080', '720', '480', 'best'
-  audioFormat?: string; // 'mp3', 'best'
+  audioFormat?: 'mp3' | 'original';
+  // Exact size of the selected formats from the info call; keeps progress
+  // continuous across the separate video and audio streams.
+  expectedBytes?: number;
   // Enhanced options
   embedSubtitles?: boolean;
   subtitleLanguages?: string[]; // ['en', 'tr', 'auto']
@@ -2944,7 +3002,7 @@ const getDirectEngineDisqualifiers = (context: {
   if (/\.m3u8(\?|$)/i.test(targetUrl)) reasons.push('manifest-stream');
 
   // Keep ffmpeg-enhanced post-processing on yt-dlp path for parity.
-  if (ffmpegReady && opts.audioFormat && opts.audioFormat !== 'best') {
+  if (ffmpegReady && opts.format === 'audio' && opts.audioFormat !== 'original') {
     reasons.push('audio-transcode-preference');
   }
 
@@ -2974,6 +3032,11 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
   if (opts.quality && opts.quality !== 'best' && !/^\d{2,4}$/.test(opts.quality)) {
     return { status: 'error', error: 'Invalid video quality' };
   }
+
+  opts.audioFormat = opts.audioFormat === 'original' ? 'original' : 'mp3';
+  opts.expectedBytes = Number.isFinite(Number(opts.expectedBytes)) && Number(opts.expectedBytes) > 0
+    ? Number(opts.expectedBytes)
+    : undefined;
 
   const downloadId = opts.id && /^[a-zA-Z0-9_-]{1,64}$/.test(opts.id)
     ? opts.id
@@ -3062,7 +3125,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
               progress: 100,
               eta: undefined,
             });
-            win?.webContents.send('download-complete', { id: downloadId });
+            win?.webContents.send('download-complete', { id: downloadId, ...(await describeFile(finalImagePath)) });
             resolve({ id: downloadId, status: 'completed' });
             return;
           }
@@ -3220,7 +3283,9 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
                 progress: 100,
                 eta: undefined,
               });
-              win?.webContents.send('download-complete', { id: downloadId });
+              void describeFile(finalImagePath).then((file) => {
+                win?.webContents.send('download-complete', { id: downloadId, ...file });
+              });
               resolve({ id: downloadId, status: 'completed' });
               return;
             }
@@ -3292,7 +3357,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
 
           if (success) {
             console.log('[Photo Download] Success via HTML extraction');
-            win?.webContents.send('download-complete', { id: downloadId });
+            win?.webContents.send('download-complete', { id: downloadId, ...(await describeFile(outputPath)) });
             resolve({ id: downloadId, status: 'completed' });
             return;
           }
@@ -3358,7 +3423,7 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
 
               if (success) {
                 console.log('[Photo Download] Success!');
-                win?.webContents.send('download-complete', { id: downloadId });
+                win?.webContents.send('download-complete', { id: downloadId, ...(await describeFile(outputPath)) });
                 resolve({ id: downloadId, status: 'completed' });
               } else {
                 console.warn('[Photo Download] Direct thumbnail fetch failed, falling back to yt-dlp --write-thumbnail');
@@ -3650,11 +3715,15 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
   const directOutputPath = path.join(stagingDir, `${downloadId}_${directFallbackTitle}.${directOutputExtension}`);
 
   if (opts.format === 'audio') {
-    // AUDIO-ONLY: Prefer MP3 conversion when ffmpeg is available.
-    args.push('-f', 'bestaudio/best');
-    if (ffmpegReady) {
+    // AUDIO-ONLY: convert to MP3 when requested and ffmpeg is available;
+    // "original" keeps the source track as-is. The sort matches the info call
+    // so the size shown for Original is the stream downloaded.
+    args.push('-f', AUDIO_FORMAT_SELECTOR, ...getVideoFormatSortArgs());
+    if (opts.audioFormat === 'original') {
+      // No conversion.
+    } else if (ffmpegReady) {
       args.push('-x');
-      args.push('--audio-format', opts.audioFormat || 'mp3');
+      args.push('--audio-format', 'mp3');
     } else {
       console.warn('[Audio Download] ffmpeg not found, downloading original audio stream without conversion');
     }
@@ -3852,6 +3921,8 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
     console.log('[start-download] Spawning yt-dlp with args:', attemptArgs.join(' '));
 
     let lastProgress = activeDownloads.get(downloadId)?.progress || 0;
+    // One bar across the video and audio streams instead of restarting at 0%.
+    const aggregateProgress = createProgressAggregator(opts.expectedBytes);
     const subprocess = spawnYtDlp(getYtDlpPath(), attemptArgs);
     activeDownloads.set(downloadId, {
       process: subprocess,
@@ -3867,17 +3938,22 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
       let percent: number | undefined;
       let speed: string | undefined;
       let eta: string | undefined;
+      let speedBps: number | undefined;
 
       const structuredProgress = text
         .split(/\r?\n/)
-        .map((line) => parseYtDlpProgress(line))
+        .map((line) => readProgressRecord(line))
+        .filter((value): value is NonNullable<typeof value> => Boolean(value))
+        .map((record) => aggregateProgress(record))
         .filter((value): value is NonNullable<typeof value> => Boolean(value));
       const structured = structuredProgress[structuredProgress.length - 1];
 
       if (structured) {
-        percent = structured.progress;
+        // Never step back below what earlier attempts already reported.
+        percent = Math.max(structured.progress, lastProgress);
         speed = structured.speed;
         eta = structured.eta;
+        speedBps = structured.speedBps;
       }
 
       // yt-dlp format: [download] 45.2% of ... at 1.23MiB/s ETA 00:05
@@ -3904,7 +3980,8 @@ ipcMain.handle('start-download', async (_event, options: DownloadOptions | strin
         id: downloadId,
         progress: percent,
         speed,
-        eta
+        eta,
+        speedBps,
       });
 
       const downloadInfo = activeDownloads.get(downloadId);
@@ -4303,6 +4380,20 @@ ipcMain.handle('open-folder', async (_event, folderPath?: string) => {
   return { success: true, data: { path: targetPath } };
 });
 
+ipcMain.handle('open-file', async (_event, filePath?: string) => {
+  const targetPath = resolveOpenableMediaPath(filePath);
+  if (!targetPath) return { success: false, error: 'File not found' };
+  const failure = await shell.openPath(targetPath);
+  return failure ? { success: false, error: failure } : { success: true };
+});
+
+ipcMain.handle('show-file', async (_event, filePath?: string) => {
+  const targetPath = resolveOpenableMediaPath(filePath);
+  if (!targetPath) return { success: false, error: 'File not found' };
+  shell.showItemInFolder(targetPath);
+  return { success: true };
+});
+
 // ==================== APP LIFECYCLE ====================
 app.on('window-all-closed', () => {
   // Kill all active downloads
@@ -4333,6 +4424,7 @@ app.on('activate', () => {
 app.whenReady().then(async () => {
   await ensureDownloadLocationLoaded();
   createWindow();
+  setInterval(updateTaskbarProgress, 1000);
 
   nativeTheme.on('updated', () => {
     const applicationIcon = getApplicationIcon();

@@ -119,7 +119,7 @@ export const getNetworkRetryArgs = (): string[] => [
 
 export const getProgressTemplateArgs = (): string[] => [
   '--progress-template',
-  `download:${PROGRESS_PREFIX}\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress._percent_str)s`,
+  `download:${PROGRESS_PREFIX}\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress._percent_str)s\t%(info.format_id)s`,
 ]
 
 const formatSpeed = (bytesPerSecond: number): string | undefined => {
@@ -151,7 +151,16 @@ const parseProgressNumber = (value: string | undefined): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
-export const parseYtDlpProgress = (line: string): ParsedProgress | null => {
+export interface ProgressRecord {
+  downloadedBytes?: number
+  totalBytes?: number
+  speedBps?: number
+  etaSeconds?: number
+  percent?: number
+  formatId?: string
+}
+
+export const readProgressRecord = (line: string): ProgressRecord | null => {
   const markerIndex = line.indexOf(PROGRESS_PREFIX)
   if (markerIndex < 0) return null
 
@@ -160,23 +169,85 @@ export const parseYtDlpProgress = (line: string): ParsedProgress | null => {
 
   const downloadedBytes = parseProgressNumber(fields[1])
   const totalBytes = parseProgressNumber(fields[2]) || parseProgressNumber(fields[3])
-  const speed = parseProgressNumber(fields[4])
-  const eta = parseProgressNumber(fields[5])
   const reportedPercent = Number.parseFloat((fields[6] || '').replace('%', '').trim())
+  const formatId = fields[7] && fields[7] !== 'NA' ? fields[7] : undefined
 
   const calculatedPercent = downloadedBytes !== undefined && totalBytes !== undefined && totalBytes > 0
     ? (downloadedBytes / totalBytes) * 100
     : undefined
-  const progress = calculatedPercent ?? (Number.isFinite(reportedPercent) ? reportedPercent : undefined)
-
-  if (progress === undefined) {
-    return null
-  }
+  const percent = calculatedPercent ?? (Number.isFinite(reportedPercent) ? reportedPercent : undefined)
+  if (percent === undefined) return null
 
   return {
-    progress: Math.max(0, Math.min(100, progress)),
-    speed: formatSpeed(speed || 0),
-    eta: formatEta(eta ?? -1),
+    downloadedBytes,
+    totalBytes,
+    speedBps: parseProgressNumber(fields[4]),
+    etaSeconds: parseProgressNumber(fields[5]),
+    percent: Math.max(0, Math.min(100, percent)),
+    formatId,
+  }
+}
+
+export const parseYtDlpProgress = (line: string): ParsedProgress | null => {
+  const record = readProgressRecord(line)
+  if (!record || record.percent === undefined) return null
+
+  return {
+    progress: record.percent,
+    speed: formatSpeed(record.speedBps || 0),
+    eta: formatEta(record.etaSeconds ?? -1),
+  }
+}
+
+export interface AggregatedProgress extends ParsedProgress {
+  speedBps?: number
+}
+
+// yt-dlp reports each stream of a merged download (video, then audio) from 0 to
+// 100%. This folds them into one figure for the whole download. With the
+// expected total from the format panel it is exact; without it, finished
+// streams count in full and progress never moves backwards.
+export const createProgressAggregator = (expectedBytes?: number) => {
+  let currentFormat: string | undefined
+  let currentTotal = 0
+  let finishedBytes = 0
+  let lastProgress = 0
+
+  return (record: ProgressRecord): AggregatedProgress => {
+    if (record.formatId && currentFormat !== undefined && record.formatId !== currentFormat) {
+      finishedBytes += currentTotal
+      currentTotal = 0
+    }
+    if (record.formatId) currentFormat = record.formatId
+    if (record.totalBytes) currentTotal = record.totalBytes
+
+    const downloaded = finishedBytes + (record.downloadedBytes || 0)
+    const hasExpected = Boolean(expectedBytes && expectedBytes > 0)
+    let progress: number
+    let remainingBytes: number | undefined
+
+    if (hasExpected && record.downloadedBytes !== undefined) {
+      progress = (downloaded / (expectedBytes as number)) * 100
+      remainingBytes = Math.max(0, (expectedBytes as number) - downloaded)
+    } else if (currentTotal > 0 && record.downloadedBytes !== undefined) {
+      progress = (downloaded / (finishedBytes + currentTotal)) * 100
+      remainingBytes = Math.max(0, currentTotal - (record.downloadedBytes || 0))
+    } else {
+      progress = record.percent ?? lastProgress
+    }
+
+    // Leave 100% for the moment the file is finalized.
+    lastProgress = Math.max(lastProgress, Math.min(99.9, Math.max(0, progress)))
+    const etaSeconds = remainingBytes !== undefined && record.speedBps && record.speedBps > 0
+      ? remainingBytes / record.speedBps
+      : record.etaSeconds
+
+    return {
+      progress: Math.round(lastProgress * 10) / 10,
+      speed: formatSpeed(record.speedBps || 0),
+      eta: formatEta(etaSeconds ?? -1),
+      speedBps: record.speedBps,
+    }
   }
 }
 

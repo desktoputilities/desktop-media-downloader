@@ -50,6 +50,29 @@ export const summarizeRequestedDownloads = (
   return details;
 };
 
+// The audio-only result from the same info call (selector 'bestaudio/best').
+// Only an entry with no video stream counts, so a video fallback is never
+// reported as an audio size.
+export const summarizeAudioDownload = (requestedDownloads: unknown): QualitySizeDetail | undefined => {
+  if (!Array.isArray(requestedDownloads)) return undefined
+
+  for (const download of requestedDownloads as any[]) {
+    const parts: any[] = Array.isArray(download?.requested_formats) && download.requested_formats.length > 0
+      ? download.requested_formats
+      : [download]
+    const audioOnly = parts.every((part) => part?.vcodec === 'none' && part?.acodec && part.acodec !== 'none')
+    const bytes = parts.reduce((total, part) => total + (Number(part?.filesize) || Number(part?.filesize_approx) || 0), 0)
+    if (audioOnly && bytes > 0) {
+      return {
+        bytes,
+        exact: parts.every((part) => Number(part?.filesize) > 0),
+        ext: typeof download?.ext === 'string' ? download.ext : undefined,
+      }
+    }
+  }
+  return undefined
+}
+
 export interface QuickHtmlMetadata {
   title?: string;
   thumbnail?: string;

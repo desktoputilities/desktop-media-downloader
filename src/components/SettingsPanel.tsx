@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, Folder, Download, History, Subtitles, Music2, Tag, Globe, Loader2, CheckCircle, XCircle, Languages } from 'lucide-react';
+import { Moon, Sun, Folder, Download, History, Subtitles, Music2, Tag, Globe, Loader2, CheckCircle, XCircle, Languages, Layers, Zap } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useDownloads } from '../context/DownloadContext';
 import { cn } from '../lib/utils';
@@ -313,56 +313,20 @@ const SettingsPanel: React.FC = () => {
                         </SettingsRow>
 
                         <SettingsRow
-                            icon={<Download className="w-4 h-4" />}
-                            title={t('settings.turboDownload')}
-                            description={t('settings.turboDownloadDesc')}
-                            beta
-                            betaNote={t('settings.turboDownloadNote')}
+                            icon={<Layers className="w-4 h-4" />}
+                            title={t('settings.parallelDownloads')}
+                            description={t('settings.parallelDownloadsDesc')}
                         >
-                            <Toggle enabled={settings.enableTurboDownload} onToggle={handleToggleTurboDownload} />
-                        </SettingsRow>
-
-                        {settings.enableTurboDownload && (
-                            <>
-                                <SettingsRow
-                                    icon={<Download className="w-4 h-4" />}
-                                    title={t('settings.turboMode')}
-                                    description={t('settings.turboModeDesc')}
-                                >
-                                    <select
-                                        value={settings.adaptiveTurboDownload ? 'auto' : 'manual'}
-                                        onChange={(e) => updateSettings({ adaptiveTurboDownload: e.target.value === 'auto' })}
-                                        className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
-                                    >
-                                        <option value="auto">{t('settings.autoRecommended')}</option>
-                                        <option value="manual">{t('settings.manual')}</option>
-                                    </select>
-                                </SettingsRow>
-
-                                <div className="px-1 pb-3 text-xs text-foreground/55 leading-relaxed">
-                                    {t('settings.turboAutoExplanation')}
-                                </div>
-                            </>
-                        )}
-
-                        {settings.enableTurboDownload && !settings.adaptiveTurboDownload && (
-                            <SettingsRow
-                                icon={<Download className="w-4 h-4" />}
-                                title={t('settings.turboConnections')}
-                                description={t('settings.turboConnectionsDesc')}
+                            <select
+                                value={String(settings.maxParallelDownloads)}
+                                onChange={(e) => updateSettings({ maxParallelDownloads: parseInt(e.target.value, 10) || 3 })}
+                                className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
                             >
-                                <select
-                                    value={String(settings.turboConnections)}
-                                    onChange={handleTurboConnectionsChange}
-                                    className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
-                                >
-                                    <option value="4">4</option>
-                                    <option value="8">8</option>
-                                    <option value="12">12</option>
-                                    <option value="16">16</option>
-                                </select>
-                            </SettingsRow>
-                        )}
+                                {[1, 2, 3, 4, 5, 6, 8].map(count => (
+                                    <option key={count} value={count}>{count}</option>
+                                ))}
+                            </select>
+                        </SettingsRow>
                     </div>
                 </div>
 
@@ -584,7 +548,7 @@ const SettingsPanel: React.FC = () => {
                     <div className="bg-secondary/30 rounded-2xl p-4 border border-foreground/5">
                         <div className="space-y-3 text-sm">
                             {[
-                                { keys: 'Ctrl + V', action: t('settings.shortcutHome') },
+                                { keys: 'Ctrl + V', action: t('settings.shortcutPaste') },
                                 { keys: 'Ctrl + D', action: t('settings.shortcutDownloads') },
                                 { keys: 'Ctrl + H', action: t('settings.shortcutHistory') },
                                 { keys: 'Ctrl + ,', action: t('settings.shortcutSettings') },
@@ -596,6 +560,66 @@ const SettingsPanel: React.FC = () => {
                                 </div>
                             ))}
                         </div>
+                    </div>
+                </div>
+
+                {/* Advanced Section */}
+                <div className="mb-8">
+                    <h2 className="text-sm font-semibold text-foreground/40 uppercase tracking-wider mb-4">
+                        {t('settings.advancedSection')}
+                    </h2>
+                    <div className="bg-secondary/30 rounded-2xl p-4 border border-foreground/5">
+                        <SettingsRow
+                            icon={<Zap className="w-4 h-4" />}
+                            title={t('settings.turboDownload')}
+                            description={t('settings.turboDownloadDesc')}
+                            beta
+                            betaNote={t('settings.turboDownloadNote')}
+                        >
+                            <Toggle enabled={settings.enableTurboDownload} onToggle={handleToggleTurboDownload} />
+                        </SettingsRow>
+
+                        {settings.enableTurboDownload && (
+                            <>
+                                <SettingsRow
+                                    icon={<Zap className="w-4 h-4" />}
+                                    title={t('settings.turboMode')}
+                                    description={t('settings.turboModeDesc')}
+                                >
+                                    <select
+                                        value={settings.adaptiveTurboDownload ? 'auto' : 'manual'}
+                                        onChange={(e) => updateSettings({ adaptiveTurboDownload: e.target.value === 'auto' })}
+                                        className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
+                                    >
+                                        <option value="auto">{t('settings.autoRecommended')}</option>
+                                        <option value="manual">{t('settings.manual')}</option>
+                                    </select>
+                                </SettingsRow>
+
+                                <div className="px-1 pb-3 text-xs text-foreground/55 leading-relaxed">
+                                    {t('settings.turboAutoExplanation')}
+                                </div>
+                            </>
+                        )}
+
+                        {settings.enableTurboDownload && !settings.adaptiveTurboDownload && (
+                            <SettingsRow
+                                icon={<Zap className="w-4 h-4" />}
+                                title={t('settings.turboConnections')}
+                                description={t('settings.turboConnectionsDesc')}
+                            >
+                                <select
+                                    value={String(settings.turboConnections)}
+                                    onChange={handleTurboConnectionsChange}
+                                    className="px-3 py-1.5 rounded-lg bg-secondary border border-foreground/10 text-sm focus:outline-none focus:border-foreground/35"
+                                >
+                                    <option value="4">4</option>
+                                    <option value="8">8</option>
+                                    <option value="12">12</option>
+                                    <option value="16">16</option>
+                                </select>
+                            </SettingsRow>
+                        )}
                     </div>
                 </div>
 

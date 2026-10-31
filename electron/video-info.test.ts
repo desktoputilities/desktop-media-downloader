@@ -3,6 +3,7 @@ import {
   createQuickVideoInfoSeed,
   getOEmbedEndpoint,
   parseQuickHtmlMetadata,
+  summarizeAudioDownload,
   summarizeRequestedDownloads,
 } from './video-info';
 
@@ -79,5 +80,20 @@ describe('quick video metadata', () => {
     expect(getOEmbedEndpoint('https://www.youtube.com/watch?v=abc')).toContain('youtube.com/oembed');
     expect(getOEmbedEndpoint('https://vimeo.com/123')).toContain('vimeo.com/api/oembed.json');
     expect(getOEmbedEndpoint('https://example.com/video')).toBeUndefined();
+  });
+});
+
+describe('original audio size', () => {
+  it('reports the audio-only result and ignores video results', () => {
+    const downloads = [
+      { ext: 'mp4', requested_formats: [{ vcodec: 'avc1', acodec: 'none', filesize: 900 }, { vcodec: 'none', acodec: 'mp4a', filesize: 100 }] },
+      { ext: 'm4a', vcodec: 'none', acodec: 'mp4a.40.2', filesize: 1594000 },
+    ];
+    expect(summarizeAudioDownload(downloads)).toEqual({ bytes: 1594000, exact: true, ext: 'm4a' });
+  });
+
+  it('returns nothing when the site has no separate audio stream', () => {
+    expect(summarizeAudioDownload([{ ext: 'mp4', vcodec: 'avc1', acodec: 'mp4a', filesize: 500 }])).toBeUndefined();
+    expect(summarizeAudioDownload(undefined)).toBeUndefined();
   });
 });

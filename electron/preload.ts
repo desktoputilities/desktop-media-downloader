@@ -13,9 +13,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.send('window-maximize'),
   close: () => ipcRenderer.send('window-close'),
 
-  onDownloadProgress: (listener: DownloadEventListener<{ id: string; progress: number; speed?: string; eta?: string }>) =>
+  onDownloadProgress: (listener: DownloadEventListener<{ id: string; progress: number; speed?: string; eta?: string; speedBps?: number }>) =>
     subscribe('download-progress', listener),
-  onDownloadComplete: (listener: DownloadEventListener<{ id: string; fileName?: string; fileSize?: number; fileExt?: string }>) =>
+  onDownloadComplete: (listener: DownloadEventListener<{ id: string; filePath?: string; fileName?: string; fileSize?: number; fileExt?: string }>) =>
     subscribe('download-complete', listener),
   onDownloadError: (listener: DownloadEventListener<{ id: string; error: string }>) =>
     subscribe('download-error', listener),
@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resumeDownload: (id: string) => ipcRenderer.invoke('resume-download', id),
   openDownloadsFolder: () => ipcRenderer.invoke('open-downloads-folder'),
   openFolder: (folderPath?: string) => ipcRenderer.invoke('open-folder', folderPath),
+  openFile: (filePath: string) => ipcRenderer.invoke('open-file', filePath),
+  showFile: (filePath: string) => ipcRenderer.invoke('show-file', filePath),
   getDownloadLocation: () => ipcRenderer.invoke('get-download-location'),
   selectDownloadLocation: () => ipcRenderer.invoke('select-download-location'),
   pickDownloadLocationOnce: (initialPath?: string) => ipcRenderer.invoke('pick-download-location-once', initialPath),

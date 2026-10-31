@@ -5,8 +5,8 @@ interface Window {
         minimize: () => void;
         maximize: () => void;
         close: () => void;
-        onDownloadProgress: (listener: (payload: { id: string; progress: number; speed?: string; eta?: string }) => void) => () => void;
-        onDownloadComplete: (listener: (payload: { id: string; fileName?: string; fileSize?: number; fileExt?: string }) => void) => () => void;
+        onDownloadProgress: (listener: (payload: { id: string; progress: number; speed?: string; eta?: string; speedBps?: number }) => void) => () => void;
+        onDownloadComplete: (listener: (payload: { id: string; filePath?: string; fileName?: string; fileSize?: number; fileExt?: string }) => void) => () => void;
         onDownloadError: (listener: (payload: { id: string; error: string }) => void) => () => void;
         getVideoInfo: (url: string, cookiesBrowser?: string) => Promise<any>;
         getVideoInfoFast: (url: string) => Promise<any>;
@@ -16,6 +16,8 @@ interface Window {
         resumeDownload: (id: string) => Promise<any>;
         openDownloadsFolder: () => Promise<any>;
         openFolder: (folderPath?: string) => Promise<any>;
+        openFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+        showFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
         getDownloadLocation: () => Promise<{
             success: boolean;
             data?: {

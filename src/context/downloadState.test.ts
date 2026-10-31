@@ -3,6 +3,9 @@ import type { DownloadItem, DownloadSettings } from './DownloadContext';
 import {
     buildRestartOptions,
     createThrottledWriter,
+    findHistoryMatch,
+    pickQueuedToStart,
+    trimCompletedDownloads,
     PLACEHOLDER_TITLE,
     removeAllTerminalDownloads,
     removeRelatedTerminalDownloads,
@@ -101,5 +104,38 @@ describe('throttled writer', () => {
         vi.advanceTimersByTime(1000);
 
         expect(write.mock.calls).toEqual([['latest']]);
+    });
+});
+
+describe('download queue', () => {
+    const item = (id: string, status: string) => ({ id, url: `https://example.com/${id}`, status });
+
+    it('starts the oldest queued items up to the parallel limit', () => {
+        // Newest first, as the queue is stored.
+        const downloads = [item('q3', 'queued'), item('q2', 'queued'), item('run', 'downloading'), item('q1', 'queued')];
+        expect(pickQueuedToStart(downloads, 3)).toEqual(['q1', 'q2']);
+    });
+
+    it('counts preparing items as running and ignores paused ones', () => {
+        const downloads = [item('q1', 'queued'), item('prep', 'pending'), item('paused', 'paused')];
+        expect(pickQueuedToStart(downloads, 1)).toEqual([]);
+        expect(pickQueuedToStart(downloads, 2)).toEqual(['q1']);
+    });
+
+    it('keeps only the newest finished items in the queue', () => {
+        const downloads = [
+            { ...item('old', 'completed'), completedAt: '2026-10-01T00:00:00Z' },
+            { ...item('new', 'completed'), completedAt: '2026-10-02T00:00:00Z' },
+            item('active', 'downloading'),
+        ];
+        expect(trimCompletedDownloads(downloads, 1).map(d => d.id)).toEqual(['new', 'active']);
+    });
+});
+
+describe('duplicate detection', () => {
+    it('matches the same video across link forms', () => {
+        const history = [{ url: 'https://www.youtube.com/watch?v=SPnN8bABA7o', id: 'h1' }];
+        expect(findHistoryMatch(history, 'https://youtu.be/SPnN8bABA7o?t=30')?.id).toBe('h1');
+        expect(findHistoryMatch(history, 'https://youtu.be/other')).toBeUndefined();
     });
 });

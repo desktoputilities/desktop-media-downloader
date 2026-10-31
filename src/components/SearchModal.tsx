@@ -108,13 +108,13 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
     };
 
     const handleDownloadSingle = async (result: SearchResult, format: 'video' | 'audio') => {
-        await addDownload(result.url, format, format === 'video' ? settings.defaultQuality : undefined);
+        await addDownload(result.url, format, format === 'video' ? settings.defaultQuality : undefined, { title: result.title, thumbnail: result.thumbnail });
     };
 
     const handleDownloadSelected = async (format: 'video' | 'audio') => {
         const selectedResults = results.filter(r => selectedVideos.has(r.id));
         await runWithConcurrency(selectedResults, 4, async (result) => {
-            await addDownload(result.url, format, format === 'video' ? settings.defaultQuality : undefined);
+            await addDownload(result.url, format, format === 'video' ? settings.defaultQuality : undefined, { title: result.title, thumbnail: result.thumbnail });
         });
         setSelectedVideos(new Set());
     };

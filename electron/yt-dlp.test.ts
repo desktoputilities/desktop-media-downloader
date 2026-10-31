@@ -10,6 +10,8 @@ import {
   isStagedTempFile,
   normalizeHttpUrl,
   parseYtDlpProgress,
+  createProgressAggregator,
+  readProgressRecord,
 } from './yt-dlp'
 
 describe('download arguments', () => {
@@ -153,5 +155,33 @@ describe('decodeDumpedPages', () => {
     const html = '<html><video src="https://example.com/a.mp4"></video></html>'
     const out = `[generic] Extracting URL: https://example.com\n[generic] Dumping request\n${Buffer.from(html).toString('base64')}\n`
     expect(decodeDumpedPages(out)).toBe(html)
+  })
+})
+
+describe('progress across streams', () => {
+  const record = (downloaded: number, total: number, formatId: string, speed = 1048576) =>
+    readProgressRecord(`desktop-media-progress\t${downloaded}\t${total}\tNA\t${speed}\t1\tNA\t${formatId}`)!
+
+  it('reads the format id from the progress template', () => {
+    expect(record(10, 100, '137').formatId).toBe('137')
+  })
+
+  it('continues from the video stream into the audio stream with the expected total', () => {
+    const aggregate = createProgressAggregator(1000)
+    expect(aggregate(record(900, 900, '137')).progress).toBe(90)
+    // The audio stream starts at 0% on its own; overall progress keeps going.
+    expect(aggregate(record(0, 100, '140')).progress).toBe(90)
+    expect(aggregate(record(50, 100, '140')).progress).toBe(95)
+  })
+
+  it('never goes backwards or reaches 100% before the file is finalized', () => {
+    const aggregate = createProgressAggregator()
+    expect(aggregate(record(100, 100, '137')).progress).toBe(99.9)
+    expect(aggregate(record(1, 100, '140')).progress).toBe(99.9)
+  })
+
+  it('estimates the remaining time from the bytes left overall', () => {
+    const aggregate = createProgressAggregator(10 * 1048576)
+    expect(aggregate(record(5 * 1048576, 5 * 1048576, '137', 1048576)).eta).toBe('0:05')
   })
 })

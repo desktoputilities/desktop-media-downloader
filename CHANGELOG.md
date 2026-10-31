@@ -4,7 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- A download queue: at most three downloads run at once by default (Settings → Downloads → Parallel downloads), and the rest show as "Queued". Playlists and multi-select search no longer start every video together.
+- Open file and Show in folder (with the file selected) on finished downloads in Home, Downloads and History.
+- Paste a link with Ctrl+V on any screen, or drop it anywhere in the window, to open its preview on Home.
+- Audio can be saved as MP3 or in its original format without conversion, which shows its exact size.
+- The taskbar shows overall download progress on Windows.
+- The format panel warns when a link is already in History and says when and in what format it was saved.
+
 ### Changed
+
+- Home is now one panel: the link bar, then the video preview and format options under it. The intro text, the Active/Completed counters, the format pop-up and the Quick video/Quick audio/Thumbnail/Screenshot buttons are gone; Search stays.
+- Quality options read "1080p · 255 MB · MP4" without the FHD/HD and Mobile labels. Photo offers Thumbnail or Frame, and Frame shows the time read from the link.
+- Save location and Turbo for one download are icon buttons next to the Download button, and Turbo settings moved to Settings → Advanced.
+- Progress is one bar across the video and audio streams of a download instead of restarting at 0% for the audio, and Home shows the total speed.
+- Downloads lists only running, queued, paused and failed items; finished files are in History. Home shows the three most recent with "See all".
+- History shows each file's real format and size instead of always "MP3" for audio.
+- Audio downloads now pick the same audio stream the size estimate uses.
 
 - Video downloads now prefer plain HTTPS streams over HLS at the same resolution, which is much faster on YouTube.
 - HLS and DASH streams now fetch four fragments at a time by default, and fragment retries back off instead of retrying immediately.
@@ -15,6 +32,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- History kept only one YouTube download: every youtube.com link got the same history ID, so each download replaced the last.
 - Files with `.part` in their title are no longer deleted during finalization, and a download with no output file now reports an error instead of success.
 - Successful photo downloads no longer show "Download did not start".
 - Retry and Boost keep the original title and file name template, so they continue from partial files.
