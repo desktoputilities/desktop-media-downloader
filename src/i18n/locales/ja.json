@@ -35,7 +35,6 @@
         "fetchBlocked": "サイトがリクエストをブロックしました。もう一度試すか、サインインしてください。",
         "fetchFailed": "このページにダウンロードできるメディアが見つかりませんでした。",
         "signInHere": "サインイン",
-        "useBrowserCookies": "ブラウザのCookieを使う",
         "tryAgain": "再試行"
     },
     "downloads": {
@@ -181,7 +180,12 @@
         "siteSignIn": "サイトにサインイン",
         "siteSignInDesc": "アカウントが必要な投稿用です。ブラウザのCookieは共有しません。サインイン情報はこのコンピューターに保存されます。",
         "signIn": "サインイン",
-        "signOut": "サインアウト"
+        "signOut": "サインアウト",
+        "importCookies": "Cookieをインポート",
+        "importCookiesHelp": "ブラウザでのみサインインしていますか？サイトにサインインしているブラウザのプロファイルで、cookies.txt拡張機能（例：「Get cookies.txt LOCALLY」）を使ってCookieをエクスポートし、ここでインポートしてください。プロファイルごとに1回です。各サイトは自分のCookieだけを使います。",
+        "cookiesImported": "{{sites}}のCookieをインポートしました。",
+        "cookiesImportFailed": "このファイルからCookieをインポートできませんでした。",
+        "chromiumCookiesNote": "Windowsでは、Chrome、EdgeなどのChromium系ブラウザは他のアプリにCookieを読ませなくなりました。代わりにCookieをインポートするか、下でサインインしてください。"
     },
     "setupWizard": {
         "languageStep": "言語を選択",

@@ -35,7 +35,6 @@
         "fetchBlocked": "Сайт заблокировал запрос. Повторите попытку или войдите.",
         "fetchFailed": "На этой странице не найдено медиафайлов для загрузки.",
         "signInHere": "Войти",
-        "useBrowserCookies": "Использовать cookie браузера",
         "tryAgain": "Повторить"
     },
     "downloads": {
@@ -181,7 +180,12 @@
         "siteSignIn": "Вход на сайты",
         "siteSignInDesc": "Для публикаций, требующих аккаунта, без передачи cookie браузера. Вход хранится на этом компьютере.",
         "signIn": "Войти",
-        "signOut": "Выйти"
+        "signOut": "Выйти",
+        "importCookies": "Импорт cookie",
+        "importCookiesHelp": "Вход выполнен только в браузере? В профиле браузера, где выполнен вход на сайт, экспортируйте cookie расширением cookies.txt (например, «Get cookies.txt LOCALLY») и импортируйте файл здесь. Один раз для каждого профиля; каждый сайт использует только свои cookie.",
+        "cookiesImported": "Импортированы cookie для {{sites}}.",
+        "cookiesImportFailed": "Не удалось импортировать cookie из этого файла.",
+        "chromiumCookiesNote": "В Windows Chrome, Edge и другие браузеры на Chromium больше не дают другим приложениям читать свои cookie. Импортируйте cookie или войдите ниже."
     },
     "setupWizard": {
         "languageStep": "Выбрать язык",

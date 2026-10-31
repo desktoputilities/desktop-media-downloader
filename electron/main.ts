@@ -39,6 +39,7 @@ import {
   type PostResult,
   type SniffedMedia,
 } from './media-resolver'
+import { baseDomainOf, parseCookieExport, summarizeCookieSites } from './site-cookies'
 
 // The built directory structure
 process.env.APP_ROOT = path.join(__dirname, '..')
@@ -269,7 +270,7 @@ const hasSiteLogin = (targetUrl: string): boolean => {
   if (!domain) return false;
   try {
     const text = fs.readFileSync(getSiteCookiesFile(), 'utf-8');
-    const base = domain.split('.').slice(-2).join('.');
+    const base = baseDomainOf(domain);
     return text.split('\n').some((line) => {
       const host = line.replace(/^#HttpOnly_/, '').split('\t')[0]?.replace(/^\./, '');
       return Boolean(host) && !line.startsWith('# ') && (host === base || host.endsWith(`.${base}`));
@@ -2666,7 +2667,7 @@ let siteLoginWin: BrowserWindow | null = null;
 ipcMain.handle('site-login-open', async (_event, site: string) => {
   const domain = normalizeSiteDomain(site);
   if (!domain) return { success: false, error: 'Invalid site' };
-  const base = domain.split('.').slice(-2).join('.');
+  const base = baseDomainOf(domain);
   const loginUrl = SITE_LOGIN_PAGES[domain] || SITE_LOGIN_PAGES[base] || `https://${domain}/`;
 
   siteLoginWin?.destroy();
@@ -2708,7 +2709,7 @@ ipcMain.handle('site-login-clear', async (_event, site?: string) => {
   const loginSession = session.fromPartition(SITE_LOGIN_PARTITION);
   const domain = normalizeSiteDomain(site);
   if (domain) {
-    const base = domain.split('.').slice(-2).join('.');
+    const base = baseDomainOf(domain);
     const cookies = await loginSession.cookies.get({});
     await Promise.all(cookies
       .filter((cookie) => {
@@ -2724,6 +2725,86 @@ ipcMain.handle('site-login-clear', async (_event, site?: string) => {
   }
   await exportSiteCookies();
   return { success: true };
+});
+
+// Session cookies would be dropped when the app restarts; keep them for a month.
+const IMPORTED_SESSION_COOKIE_SECONDS = 30 * 24 * 60 * 60;
+const MAX_COOKIE_IMPORT_BYTES = 5 * 1024 * 1024;
+
+// Loads a cookies.txt or JSON export from the user's browser into the
+// sign-in session. Each site in the file replaces that site's earlier cookies,
+// so exporting each Chrome profile separately works.
+ipcMain.handle('site-cookies-import', async (_event, content?: string) => {
+  let text = typeof content === 'string' ? content : '';
+  if (!text) {
+    const options: OpenDialogOptions = {
+      title: 'Import cookies',
+      properties: ['openFile'],
+      filters: [{ name: 'Cookies', extensions: ['txt', 'json'] }, { name: 'All files', extensions: ['*'] }],
+    };
+    const picked = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    if (picked.canceled || !picked.filePaths[0]) return { success: false, canceled: true };
+    const { size } = await fsPromises.stat(picked.filePaths[0]);
+    if (size > MAX_COOKIE_IMPORT_BYTES) return { success: false, error: 'File is too large' };
+    text = await fsPromises.readFile(picked.filePaths[0], 'utf-8');
+  }
+  if (text.length > MAX_COOKIE_IMPORT_BYTES) return { success: false, error: 'File is too large' };
+
+  const cookies = parseCookieExport(text);
+  if (cookies.length === 0) return { success: false, error: 'No cookies found in this file' };
+
+  const { session } = require('electron') as typeof import('electron');
+  const loginSession = session.fromPartition(SITE_LOGIN_PARTITION);
+  const sites = summarizeCookieSites(cookies);
+  const siteSet = new Set(sites.map((entry) => entry.site));
+
+  const existing = await loginSession.cookies.get({});
+  await Promise.all(existing
+    .filter((cookie) => siteSet.has(baseDomainOf(cookie.domain || '')))
+    .map((cookie) => loginSession.cookies.remove(
+      `http${cookie.secure ? 's' : ''}://${(cookie.domain || '').replace(/^\./, '')}${cookie.path || '/'}`,
+      cookie.name,
+    ).catch(() => undefined)));
+
+  const now = Math.round(Date.now() / 1000);
+  let imported = 0;
+  for (const cookie of cookies) {
+    const host = cookie.domain.replace(/^\./, '');
+    try {
+      await loginSession.cookies.set({
+        url: `https://${host}${cookie.path.startsWith('/') ? cookie.path : `/${cookie.path}`}`,
+        name: cookie.name,
+        value: cookie.value,
+        // Host-only and __Host- cookies must not carry a domain attribute.
+        ...(cookie.hostOnly || cookie.name.startsWith('__Host-') ? {} : { domain: cookie.domain }),
+        path: cookie.path,
+        secure: cookie.secure || cookie.name.startsWith('__Secure-') || cookie.name.startsWith('__Host-'),
+        httpOnly: cookie.httpOnly,
+        expirationDate: cookie.expires ?? now + IMPORTED_SESSION_COOKIE_SECONDS,
+      });
+      imported += 1;
+    } catch {
+      // Skip cookies Chromium rejects (for example invalid SameSite combinations).
+    }
+  }
+  await exportSiteCookies();
+  return { success: imported > 0, imported, sites: sites.map((entry) => entry.site), ...(imported === 0 ? { error: 'No cookies could be imported' } : {}) };
+});
+
+// Sites with saved sign-in cookies, from the in-app sign-in or an import.
+ipcMain.handle('site-login-list', async () => {
+  try {
+    const text = await fsPromises.readFile(getSiteCookiesFile(), 'utf-8');
+    const sites = new Set<string>();
+    for (const line of text.split('\n')) {
+      if (!line.trim() || line.startsWith('# ')) continue;
+      const host = line.replace(/^#HttpOnly_/, '').split('\t')[0];
+      if (host && !host.startsWith('#')) sites.add(baseDomainOf(host));
+    }
+    return { sites: [...sites].sort() };
+  } catch {
+    return { sites: [] };
+  }
 });
 
 // ==================== PLAYLIST/CHANNEL INFO ====================

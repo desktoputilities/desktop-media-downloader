@@ -35,7 +35,6 @@
         "fetchBlocked": "사이트가 요청을 차단했습니다. 다시 시도하거나 로그인하세요.",
         "fetchFailed": "이 페이지에서 다운로드할 수 있는 미디어를 찾지 못했습니다.",
         "signInHere": "로그인",
-        "useBrowserCookies": "브라우저 쿠키 사용",
         "tryAgain": "다시 시도"
     },
     "downloads": {
@@ -181,7 +180,12 @@
         "siteSignIn": "사이트 로그인",
         "siteSignInDesc": "계정이 필요한 게시물용이며 브라우저 쿠키를 공유하지 않습니다. 로그인 정보는 이 컴퓨터에만 저장됩니다.",
         "signIn": "로그인",
-        "signOut": "로그아웃"
+        "signOut": "로그아웃",
+        "importCookies": "쿠키 가져오기",
+        "importCookiesHelp": "브라우저에서만 로그인했나요? 사이트에 로그인된 브라우저 프로필에서 cookies.txt 확장 프로그램(예: \"Get cookies.txt LOCALLY\")으로 쿠키를 내보낸 뒤 여기서 가져오세요. 프로필마다 한 번이면 되며, 각 사이트는 자신의 쿠키만 사용합니다.",
+        "cookiesImported": "{{sites}} 쿠키를 가져왔습니다.",
+        "cookiesImportFailed": "이 파일에서 쿠키를 가져오지 못했습니다.",
+        "chromiumCookiesNote": "Windows에서 Chrome, Edge 등 Chromium 브라우저는 더 이상 다른 앱이 쿠키를 읽지 못하게 합니다. 대신 쿠키를 가져오거나 아래에서 로그인하세요."
     },
     "setupWizard": {
         "languageStep": "언어 선택",

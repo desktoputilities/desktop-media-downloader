@@ -50,6 +50,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openSiteLogin: (site: string) => ipcRenderer.invoke('site-login-open', site),
   getSiteLoginStatus: (site: string) => ipcRenderer.invoke('site-login-status', site),
   clearSiteLogin: (site?: string) => ipcRenderer.invoke('site-login-clear', site),
+  // Without content, opens a file picker for a cookies.txt or JSON export.
+  importSiteCookies: (content?: string) => ipcRenderer.invoke('site-cookies-import', content),
+  listSiteLogins: () => ipcRenderer.invoke('site-login-list'),
 
   // App info
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),

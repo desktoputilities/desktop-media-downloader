@@ -35,7 +35,6 @@
         "fetchBlocked": "网站拦截了请求。请重试或登录。",
         "fetchFailed": "此页面上未找到可下载的媒体。",
         "signInHere": "登录",
-        "useBrowserCookies": "使用浏览器 Cookie",
         "tryAgain": "重试"
     },
     "downloads": {
@@ -181,7 +180,12 @@
         "siteSignIn": "登录网站",
         "siteSignInDesc": "用于需要账号的帖子，无需共享浏览器 Cookie。登录信息只保存在这台电脑上。",
         "signIn": "登录",
-        "signOut": "退出登录"
+        "signOut": "退出登录",
+        "importCookies": "导入 Cookie",
+        "importCookiesHelp": "只在浏览器中登录了？在已登录该网站的浏览器配置文件中，用 cookies.txt 扩展（例如“Get cookies.txt LOCALLY”）导出 Cookie，然后在这里导入文件。每个配置文件导入一次即可；每个网站只使用自己的 Cookie。",
+        "cookiesImported": "已导入 {{sites}} 的 Cookie。",
+        "cookiesImportFailed": "无法从此文件导入 Cookie。",
+        "chromiumCookiesNote": "在 Windows 上，Chrome、Edge 等 Chromium 浏览器不再允许其他应用读取其 Cookie。请改为导入 Cookie 或在下方登录。"
     },
     "setupWizard": {
         "languageStep": "选择语言",

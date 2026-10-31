@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, Folder, Download, History, Subtitles, Music2, Tag, Globe, Loader2, CheckCircle, XCircle, Languages, Layers, Zap, LogIn, LogOut, KeyRound } from 'lucide-react';
+import { Moon, Sun, Folder, Download, History, Subtitles, Music2, Tag, Globe, Loader2, CheckCircle, XCircle, Languages, Layers, Zap, LogIn, LogOut, KeyRound, Upload, X } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useDownloads } from '../context/DownloadContext';
 import { cn } from '../lib/utils';
@@ -20,7 +20,74 @@ const SIGN_IN_SITES = [
     { id: 'threads.com', name: 'Threads' },
 ];
 
-const SiteSignIn: React.FC = () => {
+// Sites with saved cookies (signed in here or imported), each with sign-out,
+// and the import for cookies exported from a browser profile.
+const SavedSites: React.FC<{ version: number; onChange: () => void }> = ({ version, onChange }) => {
+    const { t } = useTranslation();
+    const [sites, setSites] = useState<string[]>([]);
+    const [importing, setImporting] = useState(false);
+    const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        void window.electronAPI?.listSiteLogins?.().then((result) => {
+            if (!cancelled) setSites(result?.sites || []);
+        });
+        return () => { cancelled = true; };
+    }, [version]);
+
+    const handleImport = async () => {
+        if (!window.electronAPI?.importSiteCookies) return;
+        setImporting(true);
+        setMessage(null);
+        try {
+            const result = await window.electronAPI.importSiteCookies();
+            if (result.canceled) return;
+            setMessage(result.success
+                ? { ok: true, text: t('settings.cookiesImported', { sites: (result.sites || []).join(', ') }) }
+                : { ok: false, text: result.error || t('settings.cookiesImportFailed') });
+            onChange();
+        } finally {
+            setImporting(false);
+        }
+    };
+
+    return (
+        <div className="pb-3 pl-12 flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() => void handleImport()}
+                    disabled={importing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap shrink-0 border border-foreground/10 hover:bg-foreground/5 disabled:opacity-60"
+                >
+                    {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    {t('settings.importCookies')}
+                </button>
+                {sites.map((site) => (
+                    <span key={site} className="flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg bg-foreground/5 text-xs">
+                        {site}
+                        <button
+                            type="button"
+                            onClick={() => void window.electronAPI?.clearSiteLogin(site).then(onChange)}
+                            className="p-0.5 rounded text-foreground/45 hover:text-foreground hover:bg-foreground/10"
+                            title={t('settings.signOut')}
+                            aria-label={`${t('settings.signOut')}: ${site}`}
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    </span>
+                ))}
+            </div>
+            <p className="text-xs text-foreground/45">{t('settings.importCookiesHelp')}</p>
+            {message && (
+                <p className={cn('text-xs', message.ok ? 'text-foreground/75' : 'text-warning')}>{message.text}</p>
+            )}
+        </div>
+    );
+};
+
+const SiteSignIn: React.FC<{ version: number; onChange: () => void }> = ({ version, onChange }) => {
     const { t } = useTranslation();
     const [site, setSite] = useState(SIGN_IN_SITES[0].id);
     const [signedIn, setSignedIn] = useState(false);
@@ -32,14 +99,13 @@ const SiteSignIn: React.FC = () => {
             if (!cancelled) setSignedIn(Boolean(result?.signedIn));
         });
         return () => { cancelled = true; };
-    }, [site]);
+    }, [site, version]);
 
     const run = async (action: () => Promise<unknown>) => {
         setBusy(true);
         try {
             await action();
-            const status = await window.electronAPI?.getSiteLoginStatus?.(site);
-            setSignedIn(Boolean(status?.signedIn));
+            onChange();
         } finally {
             setBusy(false);
         }
@@ -62,7 +128,7 @@ const SiteSignIn: React.FC = () => {
                     type="button"
                     disabled={busy}
                     onClick={() => void run(() => window.electronAPI!.clearSiteLogin(site))}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-foreground/10 hover:bg-foreground/5 disabled:opacity-60"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap shrink-0 border border-foreground/10 hover:bg-foreground/5 disabled:opacity-60"
                 >
                     {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
                     {t('settings.signOut')}
@@ -72,7 +138,7 @@ const SiteSignIn: React.FC = () => {
                     type="button"
                     disabled={busy || !window.electronAPI?.openSiteLogin}
                     onClick={() => void run(() => window.electronAPI!.openSiteLogin(site))}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                 >
                     {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
                     {t('settings.signIn')}
@@ -157,6 +223,8 @@ const SettingsPanel: React.FC = () => {
     const { settings, updateSettings, history, clearHistory, getAvailableBrowsers, validateBrowserCookies } = useDownloads();
     const [browsers, setBrowsers] = useState<{ id: string; name: string }[]>([]);
     const [cookieStatus, setCookieStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'unknown'>('idle');
+    // Bumped after a sign-in, sign-out or import so both site controls refresh.
+    const [siteLoginVersion, setSiteLoginVersion] = useState(0);
     const [downloadLocation, setDownloadLocation] = useState<{ path: string; defaultPath: string; isDefault: boolean } | null>(null);
 
     useEffect(() => {
@@ -558,6 +626,12 @@ const SettingsPanel: React.FC = () => {
                                 {t('settings.cookieInvalid')}
                             </div>
                         )}
+                        {/* Chromium on Windows encrypts cookies so only the browser itself can read them. */}
+                        {['chrome', 'edge', 'brave', 'opera', 'chromium'].includes(settings.cookiesFromBrowser) && navigator.userAgent.includes('Windows') && (
+                            <div className="mt-2 p-2 bg-warning/10 rounded-lg text-xs text-warning">
+                                {t('settings.chromiumCookiesNote')}
+                            </div>
+                        )}
                         {settings.cookiesFromBrowser && cookieStatus === 'unknown' && (
                             <div className="mt-2 p-2 bg-warning/10 rounded-lg text-xs text-warning">
                                 {t('settings.cookieUnknown')}
@@ -568,8 +642,9 @@ const SettingsPanel: React.FC = () => {
                             title={t('settings.siteSignIn')}
                             description={t('settings.siteSignInDesc')}
                         >
-                            <SiteSignIn />
+                            <SiteSignIn version={siteLoginVersion} onChange={() => setSiteLoginVersion((v) => v + 1)} />
                         </SettingsRow>
+                        <SavedSites version={siteLoginVersion} onChange={() => setSiteLoginVersion((v) => v + 1)} />
                     </div>
                 </div>
 

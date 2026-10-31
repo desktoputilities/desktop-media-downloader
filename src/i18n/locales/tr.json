@@ -35,7 +35,6 @@
         "fetchBlocked": "Site isteği engelledi. Tekrar deneyin veya giriş yapın.",
         "fetchFailed": "Bu sayfada indirilebilir medya bulunamadı.",
         "signInHere": "Giriş yap",
-        "useBrowserCookies": "Tarayıcı çerezlerini kullan",
         "tryAgain": "Tekrar dene"
     },
     "downloads": {
@@ -211,7 +210,12 @@
         "siteSignIn": "Sitelere giriş yap",
         "siteSignInDesc": "Hesap gerektiren gönderiler için, tarayıcı çerezlerinizi paylaşmadan. Giriş bu bilgisayarda kalır.",
         "signIn": "Giriş yap",
-        "signOut": "Çıkış yap"
+        "signOut": "Çıkış yap",
+        "importCookies": "Çerezleri içe aktar",
+        "importCookiesHelp": "Yalnızca tarayıcınızda mı giriş yaptınız? Siteye giriş yapmış tarayıcı profilinde çerezleri bir cookies.txt uzantısıyla (ör. \"Get cookies.txt LOCALLY\") dışa aktarın ve dosyayı buraya aktarın. Her profil için bir kez yeterli; her site yalnızca kendi çerezlerini kullanır.",
+        "cookiesImported": "{{sites}} için çerezler içe aktarıldı.",
+        "cookiesImportFailed": "Bu dosyadan çerez aktarılamadı.",
+        "chromiumCookiesNote": "Windows'ta Chrome, Edge ve diğer Chromium tarayıcılar artık başka uygulamaların çerezlerini okumasına izin vermiyor. Bunun yerine çerezleri içe aktarın veya aşağıdan giriş yapın."
     },
     "setupWizard": {
         "firstRunSetup": "İlk Kurulum",

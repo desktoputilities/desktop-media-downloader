@@ -35,7 +35,6 @@
         "fetchBlocked": "Le site a bloqué la requête. Réessayez ou connectez-vous.",
         "fetchFailed": "Aucun média téléchargeable n'a été trouvé sur cette page.",
         "signInHere": "Se connecter",
-        "useBrowserCookies": "Utiliser les cookies du navigateur",
         "tryAgain": "Réessayer"
     },
     "downloads": {
@@ -181,7 +180,12 @@
         "siteSignIn": "Connexion aux sites",
         "siteSignInDesc": "Pour les publications qui demandent un compte, sans partager les cookies de votre navigateur. La connexion reste sur cet ordinateur.",
         "signIn": "Se connecter",
-        "signOut": "Se déconnecter"
+        "signOut": "Se déconnecter",
+        "importCookies": "Importer des cookies",
+        "importCookiesHelp": "Connecté uniquement dans votre navigateur ? Dans le profil connecté au site, exportez ses cookies avec une extension cookies.txt (par exemple « Get cookies.txt LOCALLY ») puis importez le fichier ici. Une fois par profil ; chaque site n'utilise que ses propres cookies.",
+        "cookiesImported": "Cookies importés pour {{sites}}.",
+        "cookiesImportFailed": "Aucun cookie n'a pu être importé depuis ce fichier.",
+        "chromiumCookiesNote": "Sous Windows, Chrome, Edge et les autres navigateurs Chromium ne laissent plus les autres applications lire leurs cookies. Importez des cookies ou connectez-vous ci-dessous."
     },
     "setupWizard": {
         "languageStep": "Choisir la Langue",

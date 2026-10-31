@@ -35,7 +35,6 @@
         "fetchBlocked": "El sitio bloqueó la solicitud. Vuelve a intentarlo o inicia sesión.",
         "fetchFailed": "No se encontró contenido descargable en esta página.",
         "signInHere": "Iniciar sesión",
-        "useBrowserCookies": "Usar cookies del navegador",
         "tryAgain": "Reintentar"
     },
     "downloads": {
@@ -181,7 +180,12 @@
         "siteSignIn": "Iniciar sesión en sitios",
         "siteSignInDesc": "Para publicaciones que requieren una cuenta, sin compartir las cookies de tu navegador. La sesión queda en este equipo.",
         "signIn": "Iniciar sesión",
-        "signOut": "Cerrar sesión"
+        "signOut": "Cerrar sesión",
+        "importCookies": "Importar cookies",
+        "importCookiesHelp": "¿Solo has iniciado sesión en el navegador? En el perfil del navegador con la sesión iniciada, exporta sus cookies con una extensión cookies.txt (por ejemplo, \"Get cookies.txt LOCALLY\") e importa el archivo aquí. Hazlo una vez por perfil; cada sitio usa solo sus propias cookies.",
+        "cookiesImported": "Cookies importadas para {{sites}}.",
+        "cookiesImportFailed": "No se pudo importar ninguna cookie de este archivo.",
+        "chromiumCookiesNote": "En Windows, Chrome, Edge y otros navegadores Chromium ya no permiten que otras apps lean sus cookies. Importa cookies o inicia sesión abajo."
     },
     "setupWizard": {
         "languageStep": "Elegir Idioma",

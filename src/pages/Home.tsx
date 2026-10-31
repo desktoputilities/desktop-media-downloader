@@ -15,6 +15,7 @@ import {
     Loader2,
     AlertTriangle,
     RotateCw,
+    Upload,
 } from 'lucide-react';
 import DownloadCard from '../components/DownloadCard';
 import FormatPanel, { type FormatPanelHandle, type FormatSelection } from '../components/FormatSelector';
@@ -223,6 +224,18 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
         };
     }, [url, getFastVideoInfo, getVideoInfo, reloadKey]);
 
+    // Cookies exported from the browser profile signed in to the site.
+    const handleImportCookies = async () => {
+        if (!window.electronAPI?.importSiteCookies) return;
+        setIsSigningIn(true);
+        try {
+            const result = await window.electronAPI.importSiteCookies();
+            if (result.success) setReloadKey((key) => key + 1);
+        } finally {
+            setIsSigningIn(false);
+        }
+    };
+
     // Sign in inside the app, then fetch the link again with those cookies.
     const handleSiteSignIn = async (site: string) => {
         if (!window.electronAPI?.openSiteLogin) return;
@@ -395,15 +408,16 @@ const Home: React.FC<HomeProps> = ({ incomingLink, onNavigate }) => {
                                                         {isSigningIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
                                                         {t('home.signInHere')}
                                                     </button>
-                                                    {onNavigate && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => onNavigate('settings')}
-                                                            className="px-2.5 py-1 rounded-md border border-foreground/15 text-foreground/75 hover:text-foreground"
-                                                        >
-                                                            {t('home.useBrowserCookies')}
-                                                        </button>
-                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        disabled={isSigningIn}
+                                                        onClick={() => void handleImportCookies()}
+                                                        title={t('settings.importCookiesHelp')}
+                                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-foreground/15 text-foreground/75 hover:text-foreground disabled:opacity-60"
+                                                    >
+                                                        <Upload className="w-3.5 h-3.5" />
+                                                        {t('settings.importCookies')}
+                                                    </button>
                                                 </>
                                             )}
                                             {fetchProblem.kind !== 'login' && (
