@@ -14,7 +14,7 @@ const rootDir = path.resolve(path.dirname(currentFile), '..');
 const binDir = path.join(rootDir, 'bin');
 const targetName = process.platform === 'win32' ? 'gallery-dl.exe' : 'gallery-dl';
 const targetPath = path.join(binDir, targetName);
-const requestedVersion = process.env.GALLERY_DL_VERSION?.trim() || '1.32.17';
+const requestedVersion = process.env.GALLERY_DL_VERSION?.trim() || '1.32.19';
 const releaseBaseUrl = `https://codeberg.org/mikf/gallery-dl/releases/download/v${requestedVersion}`;
 
 const assetNameForPlatform = () => {

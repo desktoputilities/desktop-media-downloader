@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-31
+
 ### Added
 
 - Images, carousels and other media, not just video. Fetching a link detects what it holds: a video shows qualities, an audio-only link shows audio options, a single image shows its size and format, and a post with several items (Instagram, X, TikTok photo posts, Reddit, Bluesky, Pinterest, Imgur, Tumblr, Flickr and more) shows them as a grid to pick from. All items start selected, and the selection downloads as one queue entry.
@@ -24,6 +26,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Updated the bundled yt-dlp to 2026.10.26 and gallery-dl to 1.32.19.
 - Home is now one panel: the link bar, then the video preview and format options under it. The intro text, the Active/Completed counters, the format pop-up and the Quick video/Quick audio/Thumbnail/Screenshot buttons are gone; Search stays.
 - Quality options read "1080p · 255 MB · MP4" without the FHD/HD and Mobile labels. Photo offers Thumbnail or Frame, and Frame shows the time read from the link.
 - Save location and Turbo for one download are icon buttons next to the Download button, and Turbo settings moved to Settings → Advanced.
